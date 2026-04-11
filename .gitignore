@@ -13,3 +13,4 @@ frontend/dist/
 
 # Docker
 .env
+.claude/
