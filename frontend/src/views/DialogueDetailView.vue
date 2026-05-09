@@ -1,6 +1,6 @@
 <template>
   <div v-if="dialogue" class="dialogue-page">
-    <RouterLink :to="`/sections/${dialogue.section}`" class="back-link">← {{ t('common.back') }}</RouterLink>
+    <RouterLink :to="backTarget" class="back-link">← {{ t('common.back') }}</RouterLink>
 
     <header class="dialogue-header">
       <div class="dialogue-section-tag">{{ dialogue.section_name }}</div>
@@ -111,6 +111,11 @@ const canEdit = computed(() => {
 })
 const canWithdraw = computed(() => {
   return auth.isAuthenticated && dialogue.value?.status === 'submitted'
+})
+const backTarget = computed(() => {
+  if (!dialogue.value) return { name: 'sections' }
+  if (dialogue.value.status !== 'published') return { name: 'my-dialogues' }
+  return `/sections/${dialogue.value.section_slug}`
 })
 
 onMounted(async () => {
