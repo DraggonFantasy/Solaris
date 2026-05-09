@@ -4,12 +4,15 @@ backend/media/
 backend/staticfiles/
 backend/__pycache__/
 backend/**/__pycache__/
+backend/.venv/
 *.pyc
 .env
+.codex
 
 # Vue
 frontend/node_modules/
 frontend/dist/
+frontend/.htpasswd
 
 # Docker
 .env
