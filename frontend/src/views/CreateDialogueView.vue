@@ -35,15 +35,36 @@
           <input v-model="form.title" type="text" :placeholder="t('dialogue.titlePlaceholder')" required />
         </div>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label>{{ t('dialogue.llmName') }}</label>
-            <input v-model="form.llm_name" type="text" placeholder="Claude, Gemini, GPT-4…" />
+        <div class="form-group">
+          <label>{{ t('dialogue.description') }} *</label>
+          <textarea v-model="form.summary" rows="3" :placeholder="t('dialogue.descriptionPlaceholder')" />
+        </div>
+
+        <div class="form-group">
+          <label>{{ t('dialogue.authors') }}</label>
+          <div class="author-list">
+            <div v-for="(author, index) in authors" :key="author.localId" class="author-chip">
+              <div>
+                <strong>{{ author.name }}</strong>
+                <span>{{ authorKindLabel(author.kind) }}</span>
+              </div>
+              <button
+                v-if="!author.is_current_user"
+                type="button"
+                class="chip-remove"
+                :aria-label="t('dialogue.removeAuthor')"
+                @click="removeAuthor(index)"
+              >
+                ×
+              </button>
+            </div>
+            <button type="button" class="add-author-card" @click="openAuthorModal">
+              + {{ t('dialogue.addAuthor') }}
+            </button>
           </div>
-          <div class="form-group">
-            <label>{{ t('dialogue.llmVersion') }}</label>
-            <input v-model="form.llm_version" type="text" placeholder="3.5 Sonnet, 1.5 Pro…" />
-          </div>
+          <datalist id="author-suggestions">
+            <option v-for="author in authorSuggestions" :key="author.name" :value="author.name" />
+          </datalist>
         </div>
 
         <div class="form-group">
@@ -60,22 +81,68 @@
 
       <!-- Step 1: Dialogue text -->
       <div v-if="currentStep === 1">
-        <h2 class="step-title">{{ t('dialogue.step2Title') }}</h2>
-        <p class="step-hint">{{ t('dialogue.step2Hint') }}</p>
-        <MarkdownEditor
-          v-model="form.text"
-          :placeholder="dialoguePlaceholder"
-        />
+        <div class="dialogue-text-header">
+          <div>
+            <h2 class="step-title">{{ t('dialogue.step2Title') }}</h2>
+            <p class="step-hint">{{ t('dialogue.step2Hint') }}</p>
+          </div>
+          <div class="import-menu-wrap">
+            <button type="button" class="btn btn-outline" @click="showImportMenu = !showImportMenu">
+              {{ t('dialogue.importFrom') }}
+            </button>
+            <div v-if="showImportMenu" class="import-menu">
+              <button
+                v-for="source in importSources"
+                :key="source.name"
+                type="button"
+                @click="handleImport(source.name)"
+              >
+                <span class="source-icon">{{ source.short }}</span>
+                {{ source.name }}
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="dialogue-editor-layout">
+          <MarkdownEditor
+            v-model="form.text"
+            :placeholder="dialoguePlaceholder"
+          />
+          <aside class="speakers-panel">
+            <div class="speakers-panel-header">
+              <h3>{{ t('dialogue.speakersTitle') }}</h3>
+              <span>{{ dialogueSpeakers.length }}</span>
+            </div>
+            <div v-if="dialogueSpeakers.length" class="speaker-list">
+              <button
+                v-for="speaker in dialogueSpeakers"
+                :key="speaker"
+                type="button"
+                class="speaker-item"
+                @click="insertSpeakerTurn(speaker)"
+              >
+                {{ speaker }}
+              </button>
+            </div>
+            <p v-else class="empty-speakers">{{ t('dialogue.noSpeakers') }}</p>
+
+            <form class="speaker-add-form" @submit.prevent="addSpeaker">
+              <input
+                v-model="speakerDraft"
+                type="text"
+                :placeholder="t('dialogue.speakerNamePlaceholder')"
+              />
+              <button type="submit" class="btn btn-primary btn-sm" :disabled="!speakerDraft.trim()">
+                + {{ t('dialogue.addSpeaker') }}
+              </button>
+            </form>
+          </aside>
+        </div>
       </div>
 
       <!-- Step 2: Extras -->
       <div v-if="currentStep === 2">
         <h2 class="step-title">{{ t('dialogue.step3Title') }}</h2>
-
-        <div class="form-group">
-          <label>{{ t('dialogues.summary') }}</label>
-          <textarea v-model="form.summary" rows="3" :placeholder="t('dialogue.summaryPlaceholder')" />
-        </div>
 
         <div class="form-group">
           <label>{{ t('dialogues.foodForThought') }}</label>
@@ -90,6 +157,51 @@
         <div v-if="error" class="alert alert-error">{{ error }}</div>
       </div>
 
+    </div>
+
+    <div v-if="showAuthorModal" class="modal-backdrop" @click.self="closeAuthorModal">
+      <form class="modal-panel" @submit.prevent="addAuthor">
+        <header class="modal-header">
+          <h2>{{ t('dialogue.addAuthor') }}</h2>
+          <button type="button" class="modal-close" :aria-label="t('common.cancel')" @click="closeAuthorModal">×</button>
+        </header>
+
+        <div class="form-group">
+          <label>{{ t('dialogue.authorType') }}</label>
+          <select v-model="authorDraft.kind">
+            <option value="person">{{ t('dialogue.authorKindPerson') }}</option>
+            <option value="ai_model">{{ t('dialogue.authorKindAi') }}</option>
+            <option value="organization">{{ t('dialogue.authorKindOrganization') }}</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>{{ t('dialogue.authorName') }}</label>
+          <input
+            v-model="authorDraft.name"
+            type="text"
+            list="author-suggestions"
+            :placeholder="t('dialogue.authorNamePlaceholder')"
+            autofocus
+          />
+        </div>
+
+        <div class="form-group">
+          <label>{{ t('dialogue.authorDescription') }}</label>
+          <textarea
+            v-model="authorDraft.description"
+            rows="3"
+            :placeholder="t('dialogue.authorDescriptionPlaceholder')"
+          />
+        </div>
+
+        <footer class="modal-actions">
+          <button type="button" class="btn btn-outline" @click="closeAuthorModal">{{ t('common.cancel') }}</button>
+          <button type="submit" class="btn btn-primary" :disabled="!authorDraft.name.trim()">
+            {{ t('dialogue.addAuthor') }}
+          </button>
+        </footer>
+      </form>
     </div>
 
     <!-- Navigation -->
@@ -108,7 +220,7 @@
         </button>
         <template v-else>
           <button class="btn btn-outline" :disabled="submitting" @click="submit(false)">
-            {{ t('dialogue.saveDraft') }}
+            {{ isEditing ? t('dialogue.saveChanges') : t('dialogue.saveDraft') }}
           </button>
           <button class="btn btn-primary" :disabled="submitting" @click="submit(true)">
             {{ submitting ? t('common.loading') : t('dialogue.submitReview') }}
@@ -121,24 +233,54 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { useAuthStore } from '../stores/auth'
 import api from '../api'
 import MarkdownEditor from '../components/MarkdownEditor.vue'
 
 const { t } = useI18n()
+const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 
 const currentStep = ref(0)
 const submitting = ref(false)
 const error = ref('')
+const showAuthorModal = ref(false)
+const showImportMenu = ref(false)
 const sections = ref([])
+const authors = ref([])
+const speakerDraft = ref('')
+const originalStatus = ref('draft')
+
+const importSources = [
+  { name: 'ChatGPT', short: 'CG' },
+  { name: 'Claude', short: 'CL' },
+  { name: 'Gemini', short: 'GM' },
+]
+
+const authorSuggestions = [
+  { kind: 'ai_model', name: 'ChatGPT GPT-4.1' },
+  { kind: 'ai_model', name: 'Claude 3.5 Sonnet' },
+  { kind: 'ai_model', name: 'Gemini 1.5 Pro' },
+  { kind: 'ai_model', name: 'GPT-4' },
+]
+
+const authorDraft = ref({
+  kind: 'ai_model',
+  name: '',
+  version: '',
+  description: '',
+})
 
 const steps = computed(() => [
   t('dialogue.step1'),
   t('dialogue.step2'),
   t('dialogue.step3'),
 ])
+
+const isEditing = computed(() => route.name === 'edit-dialogue')
 
 const form = ref({
   section: '',
@@ -152,25 +294,52 @@ const form = ref({
   recommended_literature: '',
 })
 
-const dialoguePlaceholder = `## Human
+const dialoguePlaceholder = computed(() => {
+  return `## Сократ
 
-Write your message here...
+Напишіть репліку першого співрозмовника...
 
 
-## AI
+## LLM-агент
 
-Write the AI response here...
+Напишіть відповідь...
 `
+})
+
+const dialogueSpeakers = computed(() => {
+  const names = []
+  const seen = new Set()
+  const matches = form.value.text.matchAll(/^##\s+(.+?)\s*$/gm)
+  for (const match of matches) {
+    const name = match[1].trim()
+    if (name && !seen.has(name)) {
+      seen.add(name)
+      names.push(name)
+    }
+  }
+  return names
+})
 
 const canProceed = computed(() => {
-  if (currentStep.value === 0) return form.value.section && form.value.title.trim()
+  if (currentStep.value === 0) {
+    return form.value.section && form.value.title.trim() && form.value.summary.trim() && authors.value.length > 0
+  }
   if (currentStep.value === 1) return form.value.text.trim().length > 50
   return true
 })
 
 onMounted(async () => {
-  const { data } = await api.get('/sections/')
-  sections.value = data.results || data
+  if (auth.isAuthenticated && !auth.user) {
+    await auth.fetchMe()
+  }
+  const sectionRes = await api.get('/sections/')
+  sections.value = sectionRes.data.results || sectionRes.data
+  if (isEditing.value) {
+    await loadDialogue()
+  } else {
+    initDefaultAuthor()
+    restoreAuthorPresets()
+  }
 })
 
 function nextStep() {
@@ -181,8 +350,19 @@ async function submit(submitForReview) {
   error.value = ''
   submitting.value = true
   try {
-    const payload = { ...form.value, published: false }
-    const { data } = await api.post('/dialogues/', payload)
+    persistAuthorPresets()
+    const firstAiAuthor = authors.value.find((author) => author.kind === 'ai_model')
+    const payload = {
+      ...form.value,
+      authors: authors.value.map(({ localId, ...author }) => author),
+      llm_name: firstAiAuthor?.name || '',
+      llm_version: firstAiAuthor?.version || '',
+      status: submitForReview ? 'submitted' : (isEditing.value ? originalStatus.value : 'draft'),
+      published: false
+    }
+    const { data } = isEditing.value
+      ? await api.put(`/dialogues/${route.params.id}/`, payload)
+      : await api.post('/dialogues/', payload)
     if (submitForReview) {
       router.push({ name: 'dialogue-submitted', params: { id: data.id } })
     } else {
@@ -195,6 +375,117 @@ async function submit(submitForReview) {
   } finally {
     submitting.value = false
   }
+}
+
+async function loadDialogue() {
+  const { data } = await api.get(`/dialogues/${route.params.id}/`)
+  originalStatus.value = data.status || 'draft'
+  form.value = {
+    section: data.section,
+    title: data.title || '',
+    llm_name: data.llm_name || '',
+    llm_version: data.llm_version || '',
+    style: data.style || 'other',
+    text: data.text || '',
+    summary: data.summary || '',
+    food_for_thought: data.food_for_thought || '',
+    recommended_literature: data.recommended_literature || '',
+  }
+  authors.value = (data.authors || []).map((author) => ({
+    ...author,
+    localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+  }))
+  if (!authors.value.length) {
+    initDefaultAuthor()
+  }
+}
+
+function initDefaultAuthor() {
+  if (!auth.user || authors.value.some((author) => author.is_current_user)) return
+  const displayName = [auth.user.first_name, auth.user.last_name].filter(Boolean).join(' ') || auth.user.username
+  authors.value.unshift({
+    localId: `current-user-${auth.user.id}`,
+    kind: 'person',
+    name: displayName,
+    version: '',
+    description: auth.user.bio || '',
+    is_current_user: true,
+  })
+}
+
+function restoreAuthorPresets() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('solaris_author_presets') || '[]')
+    saved.forEach((author) => {
+      if (!authors.value.some((item) => item.name === author.name && item.kind === author.kind)) {
+        authors.value.push({ ...author, localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}` })
+      }
+    })
+  } catch {
+    // Ignore malformed local storage.
+  }
+}
+
+function persistAuthorPresets() {
+  const reusable = authors.value
+    .filter((author) => !author.is_current_user)
+    .map(({ localId, ...author }) => author)
+  localStorage.setItem('solaris_author_presets', JSON.stringify(reusable.slice(0, 20)))
+}
+
+function addAuthor() {
+  const name = authorDraft.value.name.trim()
+  if (!name) return
+  const suggestion = authorSuggestions.find((item) => item.name.toLowerCase() === name.toLowerCase())
+  const author = {
+    localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+    kind: authorDraft.value.kind,
+    name,
+    version: '',
+    description: authorDraft.value.description.trim(),
+    is_current_user: false,
+  }
+  if (!authors.value.some((item) => item.name === author.name && item.kind === author.kind)) {
+    authors.value.push(author)
+  }
+  closeAuthorModal()
+}
+
+function removeAuthor(index) {
+  authors.value.splice(index, 1)
+}
+
+function openAuthorModal() {
+  showAuthorModal.value = true
+}
+
+function closeAuthorModal() {
+  showAuthorModal.value = false
+  authorDraft.value = { kind: 'ai_model', name: '', version: '', description: '' }
+}
+
+function authorKindLabel(kind) {
+  if (kind === 'ai_model') return t('dialogue.authorKindAi')
+  if (kind === 'organization') return t('dialogue.authorKindOrganization')
+  return t('dialogue.authorKindPerson')
+}
+
+function addSpeaker() {
+  const name = speakerDraft.value.trim()
+  if (!name) return
+  insertSpeakerTurn(name)
+  speakerDraft.value = ''
+}
+
+function insertSpeakerTurn(speaker) {
+  const val = form.value.text
+  const suffix = val && !val.endsWith('\n\n') ? (val.endsWith('\n') ? '\n' : '\n\n') : ''
+  form.value.text = `${val}${suffix}## ${speaker}\n\n`
+}
+
+function handleImport(source) {
+  showImportMenu.value = false
+  window.alert(t('dialogue.importStub', { source }))
 }
 </script>
 
@@ -280,10 +571,141 @@ async function submit(submitForReview) {
   margin-bottom: 1rem;
 }
 
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+.dialogue-text-header {
+  align-items: flex-start;
+  display: flex;
   gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.dialogue-text-header .step-title {
+  margin-bottom: 0.5rem;
+}
+
+.dialogue-text-header .step-hint {
+  margin-bottom: 0;
+}
+
+.import-menu-wrap {
+  position: relative;
+}
+
+.import-menu {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 180px;
+  padding: 0.35rem;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  z-index: 20;
+}
+
+.import-menu button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: var(--color-text);
+  cursor: pointer;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+}
+
+.import-menu button:hover {
+  background: var(--color-bg);
+}
+
+.source-icon {
+  align-items: center;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-primary);
+  display: inline-flex;
+  font-size: 0.68rem;
+  font-weight: 700;
+  height: 24px;
+  justify-content: center;
+  width: 28px;
+}
+
+.dialogue-editor-layout {
+  align-items: stretch;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) 240px;
+}
+
+.speakers-panel {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.85rem;
+}
+
+.speakers-panel-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.speakers-panel-header h3 {
+  color: var(--color-primary);
+  font-family: var(--font-serif);
+  font-size: 1rem;
+}
+
+.speakers-panel-header span {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.speaker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.speaker-item {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text);
+  cursor: pointer;
+  overflow: hidden;
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.speaker-item:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.empty-speakers {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.speaker-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: auto;
 }
 
 .wizard-nav {
@@ -295,5 +717,149 @@ async function submit(submitForReview) {
 .nav-right {
   display: flex;
   gap: 0.75rem;
+}
+
+.author-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.author-chip {
+  align-items: center;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  min-width: 180px;
+  padding: 0.5rem 0.65rem;
+}
+
+.author-chip div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.author-chip strong,
+.author-chip span,
+.author-chip small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.author-chip span,
+.author-chip small {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+
+.chip-remove {
+  background: transparent;
+  border: 0;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.add-author-card {
+  align-items: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-primary);
+  cursor: pointer;
+  display: flex;
+  font-weight: 600;
+  min-height: 58px;
+  padding: 0.5rem 0.75rem;
+}
+
+.add-author-card:hover {
+  background: var(--color-bg);
+}
+
+.modal-backdrop {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.45);
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  left: 0;
+  padding: 1rem;
+  position: fixed;
+  right: 0;
+  top: 0;
+  z-index: 300;
+}
+
+.modal-panel {
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  max-width: 520px;
+  padding: 1.25rem;
+  width: min(100%, 520px);
+}
+
+.modal-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.modal-header h2 {
+  font-family: var(--font-serif);
+  font-size: 1.125rem;
+  color: var(--color-primary);
+}
+
+.modal-close {
+  background: transparent;
+  border: 0;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+@media (max-width: 760px) {
+  .dialogue-text-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .import-menu {
+    left: 0;
+    right: auto;
+  }
+
+  .dialogue-editor-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .wizard-nav {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .nav-right {
+    justify-content: flex-end;
+  }
 }
 </style>
