@@ -138,6 +138,7 @@
             </form>
           </aside>
         </div>
+        <div v-if="textStepError" class="alert alert-error dialogue-step-error">{{ textStepError }}</div>
       </div>
 
       <!-- Step 2: Extras -->
@@ -247,6 +248,7 @@ const auth = useAuthStore()
 const currentStep = ref(0)
 const submitting = ref(false)
 const error = ref('')
+const textStepError = ref('')
 const showAuthorModal = ref(false)
 const showImportMenu = ref(false)
 const sections = ref([])
@@ -324,7 +326,6 @@ const canProceed = computed(() => {
   if (currentStep.value === 0) {
     return form.value.section && form.value.title.trim() && form.value.summary.trim() && authors.value.length > 0
   }
-  if (currentStep.value === 1) return form.value.text.trim().length > 50
   return true
 })
 
@@ -343,7 +344,21 @@ onMounted(async () => {
 })
 
 function nextStep() {
+  if (currentStep.value === 1 && !validateTextStep()) return
+  textStepError.value = ''
   if (canProceed.value) currentStep.value++
+}
+
+function validateTextStep() {
+  if (!form.value.text.trim()) {
+    textStepError.value = t('dialogue.textRequired')
+    return false
+  }
+  if (!dialogueSpeakers.value.length) {
+    textStepError.value = t('dialogue.speakerHeadingRequired')
+    return false
+  }
+  return true
 }
 
 async function submit(submitForReview) {
@@ -706,6 +721,10 @@ function handleImport(source) {
   flex-direction: column;
   gap: 0.5rem;
   margin-top: auto;
+}
+
+.dialogue-step-error {
+  margin-top: 1rem;
 }
 
 .wizard-nav {

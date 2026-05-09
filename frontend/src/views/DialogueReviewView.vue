@@ -194,20 +194,32 @@ function formatDate(iso) {
 
 .dialogue-status.published {
   background: #dcfce7;
-  color: var(--color-success);
+  color: #166534;
 }
 
-.dialogue-status.draft,
-.dialogue-status.submitted,
+.dialogue-status.draft {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.dialogue-status.submitted {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
 .dialogue-status.changes_requested {
   background: #fef9c3;
   color: #854d0e;
 }
 
-.dialogue-status.rejected,
-.dialogue-status.archived {
+.dialogue-status.rejected {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.dialogue-status.archived {
+  background: #ede9fe;
+  color: #5b21b6;
 }
 
 .moderation-note {

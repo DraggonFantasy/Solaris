@@ -17,25 +17,24 @@
     </div>
 
     <div v-else class="dialogue-list">
-      <div v-for="d in dialogues" :key="d.id" class="dialogue-row card">
-        <div class="dialogue-row-main">
-          <div class="dialogue-section-tag">{{ d.section_name }}</div>
-          <RouterLink :to="`/dialogues/${d.id}`" class="dialogue-row-title">
-            {{ d.title }}
-          </RouterLink>
-          <div class="dialogue-status" :class="d.status">
-            {{ statusLabel(d.status) }}
+      <RouterLink v-for="d in dialogues" :key="d.id" :to="`/dialogues/${d.id}`" class="dialogue-row">
+        <div class="dialogue-main">
+          <div class="dialogue-title-line">
+            <span class="dialogue-title">{{ d.title }}</span>
+            <span class="dialogue-status" :class="d.status">{{ statusLabel(d.status) }}</span>
           </div>
           <p v-if="d.moderation_note" class="moderation-note">
             {{ d.moderation_note }}
           </p>
+          <div class="dialogue-subline">
+            <span>{{ d.section_name }}</span>
+            <span>{{ formatDate(d.created_at) }}</span>
+            <span v-if="authorLine(d)">{{ authorLine(d) }}</span>
+            <span v-if="d.status === 'published'">♥ {{ d.likes_count }}</span>
+          </div>
+          <p v-if="d.summary" class="dialogue-summary">{{ d.summary }}</p>
         </div>
-        <div class="dialogue-row-meta">
-          <span>{{ formatDate(d.created_at) }}</span>
-          <span v-if="d.llm_name">{{ d.llm_name }}</span>
-          <span v-if="d.status === 'published'">♥ {{ d.likes_count }}</span>
-        </div>
-      </div>
+      </RouterLink>
     </div>
   </div>
 </template>
@@ -66,6 +65,11 @@ function statusLabel(status) {
   return t(`dialogue.status.${status || 'draft'}`)
 }
 
+function authorLine(dialogue) {
+  const authors = (dialogue.authors || []).map((author) => author.name).filter(Boolean)
+  if (authors.length) return authors.join(', ')
+  return [dialogue.human_author_username, dialogue.llm_name].filter(Boolean).join(', ')
+}
 </script>
 
 <style scoped>
@@ -91,67 +95,109 @@ function statusLabel(status) {
 }
 
 .dialogue-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+  border-bottom: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border);
 }
 
 .dialogue-row {
+  color: inherit;
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
+  padding: 0.9rem 0.25rem;
+  text-decoration: none;
+  transition: background 0.15s;
 }
 
-.dialogue-row-main {
+.dialogue-row + .dialogue-row {
+  border-top: 1px solid var(--color-border);
+}
+
+.dialogue-row:hover {
+  background: var(--color-bg);
+}
+
+.dialogue-main {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.4rem;
+  min-width: 0;
 }
 
-.dialogue-section-tag {
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: var(--color-accent);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+.dialogue-title-line {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
 }
 
-.dialogue-row-title {
+.dialogue-title {
   font-family: var(--font-serif);
   font-weight: 700;
   color: var(--color-text);
-  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.dialogue-row-title:hover { color: var(--color-primary); }
+.dialogue-row:hover .dialogue-title {
+  color: var(--color-primary);
+}
+
+.dialogue-subline {
+  color: var(--color-text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+  font-size: 0.8rem;
+}
+
+.dialogue-summary {
+  color: var(--color-text-muted);
+  display: -webkit-box;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
 .dialogue-status {
-  display: inline-block;
+  flex: 0 0 auto;
   font-size: 0.7rem;
   font-weight: 600;
   padding: 0.15rem 0.5rem;
   border-radius: 999px;
-  width: fit-content;
+  white-space: nowrap;
 }
 
 .dialogue-status.published {
   background: #dcfce7;
-  color: var(--color-success);
+  color: #166534;
 }
 
-.dialogue-status.draft,
-.dialogue-status.submitted,
+.dialogue-status.draft {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.dialogue-status.submitted {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
 .dialogue-status.changes_requested {
   background: #fef9c3;
   color: #854d0e;
 }
 
-.dialogue-status.rejected,
-.dialogue-status.archived {
+.dialogue-status.rejected {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.dialogue-status.archived {
+  background: #ede9fe;
+  color: #5b21b6;
 }
 
 .moderation-note {
@@ -161,15 +207,5 @@ function statusLabel(status) {
   line-height: 1.45;
   margin-top: 0.35rem;
   padding-left: 0.65rem;
-}
-
-.dialogue-row-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
-  text-align: right;
-  white-space: nowrap;
 }
 </style>
