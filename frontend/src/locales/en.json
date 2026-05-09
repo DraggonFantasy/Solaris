@@ -53,6 +53,10 @@
     "pendingComment": "Pending moderation",
     "commentPendingNotice": "Comment has been sent for moderation.",
     "commentSubmitError": "Could not submit comment.",
+    "reply": "Reply",
+    "replyTo": "In reply to",
+    "replyPlaceholder": "Write a reply...",
+    "editComment": "Edit",
     "noDialogues": "No dialogues yet"
   },
   "dialogue": {
@@ -142,7 +146,8 @@
     "empty": "No comments in this queue.",
     "staffOnly": "Only staff users can moderate comments.",
     "approve": "Approve",
-    "reject": "Reject"
+    "reject": "Reject",
+    "replyTo": "Reply to"
   },
   "common": {
     "loading": "Loading...",

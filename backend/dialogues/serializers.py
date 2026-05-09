@@ -30,26 +30,62 @@ class DialogueIllustrationSerializer(serializers.ModelSerializer):
 
 
 class CommentSerializer(serializers.ModelSerializer):
+    author_id = serializers.IntegerField(source='author.id', read_only=True)
     author_username = serializers.CharField(source='author.username', read_only=True)
+    parent = serializers.PrimaryKeyRelatedField(
+        queryset=Comment.objects.all(), required=False, allow_null=True
+    )
+    parent_author_username = serializers.SerializerMethodField()
 
     class Meta:
         model = Comment
-        fields = ('id', 'author_username', 'text', 'approved', 'created_at')
+        fields = (
+            'id', 'parent', 'parent_author_username', 'author_id', 'author_username',
+            'text', 'approved', 'created_at',
+        )
         read_only_fields = ('approved', 'created_at')
+
+    def get_parent_author_username(self, obj):
+        if not obj.parent_id:
+            return ''
+        return obj.parent.author.username
+
+
+class CommentEditSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Comment
+        fields = ('text',)
 
 
 class CommentReviewSerializer(serializers.ModelSerializer):
     author_username = serializers.CharField(source='author.username', read_only=True)
     dialogue_id = serializers.IntegerField(source='dialogue.id', read_only=True)
     dialogue_title = serializers.CharField(source='dialogue.title', read_only=True)
+    parent = serializers.SerializerMethodField()
+    parent_author_username = serializers.SerializerMethodField()
+    parent_text = serializers.SerializerMethodField()
 
     class Meta:
         model = Comment
         fields = (
             'id', 'author_username', 'dialogue_id', 'dialogue_title',
+            'parent', 'parent_author_username', 'parent_text',
             'text', 'approved', 'created_at',
         )
         read_only_fields = fields
+
+    def get_parent(self, obj):
+        return obj.parent_id
+
+    def get_parent_author_username(self, obj):
+        if not obj.parent_id:
+            return ''
+        return obj.parent.author.username
+
+    def get_parent_text(self, obj):
+        if not obj.parent_id:
+            return ''
+        return obj.parent.text
 
 
 class DialogueListSerializer(serializers.ModelSerializer):
@@ -100,14 +136,18 @@ class DialogueDetailSerializer(serializers.ModelSerializer):
     def get_comments(self, obj):
         if obj.status != Dialogue.STATUS_PUBLISHED:
             return []
-        qs = obj.comments.filter(approved=True)
+        qs = obj.comments.select_related('author', 'parent', 'parent__author').filter(approved=True)
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             if request.user.is_staff:
-                qs = obj.comments.all()
+                qs = obj.comments.select_related('author', 'parent', 'parent__author').all()
             else:
-                qs = obj.comments.filter(models.Q(approved=True) | models.Q(author=request.user))
-        return CommentSerializer(qs, many=True).data
+                qs = obj.comments.select_related('author', 'parent', 'parent__author').filter(
+                    models.Q(approved=True) | models.Q(author=request.user)
+                )
+        visible = list(qs)
+        visible.sort(key=lambda comment: comment.created_at)
+        return CommentSerializer(visible, many=True).data
 
     def get_user_has_liked(self, obj):
         if obj.status != Dialogue.STATUS_PUBLISHED:

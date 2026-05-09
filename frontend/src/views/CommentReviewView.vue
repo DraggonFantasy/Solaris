@@ -26,6 +26,10 @@
               {{ comment.approved ? t('commentModeration.approved') : t('commentModeration.pending') }}
             </span>
           </div>
+          <div v-if="comment.parent" class="parent-comment">
+            <strong>{{ t('commentModeration.replyTo') }} {{ comment.parent_author_username }}</strong>
+            <p>{{ comment.parent_text }}</p>
+          </div>
           <p class="comment-text">{{ comment.text }}</p>
         </div>
 
@@ -179,6 +183,30 @@ function formatDate(iso) {
   line-height: 1.55;
   margin-top: 0.75rem;
   white-space: pre-wrap;
+}
+
+.parent-comment {
+  background: var(--color-bg);
+  border-left: 3px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  margin-top: 0.75rem;
+  padding: 0.55rem 0.75rem;
+}
+
+.parent-comment strong {
+  color: var(--color-text);
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.parent-comment p {
+  display: -webkit-box;
+  line-height: 1.45;
+  margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .comment-actions {
