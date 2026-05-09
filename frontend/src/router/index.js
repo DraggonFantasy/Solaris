@@ -44,6 +44,12 @@ const routes = [
     name: 'dialogue-review',
     meta: { requiresAuth: true, requiresStaff: true }
   },
+  {
+    path: '/moderation/comments',
+    component: () => import('../views/CommentReviewView.vue'),
+    name: 'comment-review',
+    meta: { requiresAuth: true, requiresStaff: true }
+  },
 ]
 
 const router = createRouter({

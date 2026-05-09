@@ -72,20 +72,25 @@
     <section v-if="isPublished" class="comments-section">
       <h2>{{ t('dialogues.addComment') }}</h2>
       <div class="comments-list">
-        <div v-for="c in dialogue.comments" :key="c.id" class="comment card">
+        <div v-for="c in dialogue.comments" :key="c.id" class="comment card" :class="{ pending: !c.approved }">
           <div class="comment-meta">
             <strong>{{ c.author_username }}</strong>
             <span>{{ formatDate(c.created_at) }}</span>
+            <span v-if="!c.approved" class="pending-badge">{{ t('dialogues.pendingComment') }}</span>
           </div>
           <p>{{ c.text }}</p>
         </div>
       </div>
 
       <form v-if="auth.isAuthenticated" class="comment-form" @submit.prevent="submitComment">
+        <div v-if="commentNotice" class="alert alert-success">{{ commentNotice }}</div>
+        <div v-if="commentError" class="alert alert-error">{{ commentError }}</div>
         <div class="form-group">
           <textarea v-model="commentText" rows="3" required :placeholder="t('dialogues.addComment')" />
         </div>
-        <button class="btn btn-primary" type="submit">{{ t('dialogues.submitComment') }}</button>
+        <button class="btn btn-primary" type="submit" :disabled="submittingComment">
+          {{ submittingComment ? t('common.loading') : t('dialogues.submitComment') }}
+        </button>
       </form>
     </section>
   </div>
@@ -107,6 +112,9 @@ const auth = useAuthStore()
 const dialogue = ref(null)
 const loading = ref(true)
 const commentText = ref('')
+const commentNotice = ref('')
+const commentError = ref('')
+const submittingComment = ref(false)
 const withdrawing = ref(false)
 
 const isPublished = computed(() => dialogue.value?.status === 'published')
@@ -145,11 +153,20 @@ async function toggleLike() {
 
 async function submitComment() {
   if (!commentText.value.trim() || !isPublished.value) return
-  await api.post(`/dialogues/${route.params.id}/comments/`, { text: commentText.value })
-  commentText.value = ''
-  // Reload to show pending comment notice
-  const { data } = await api.get(`/dialogues/${route.params.id}/`)
-  dialogue.value = data
+  commentNotice.value = ''
+  commentError.value = ''
+  submittingComment.value = true
+  try {
+    await api.post(`/dialogues/${route.params.id}/comments/`, { text: commentText.value })
+    commentText.value = ''
+    commentNotice.value = t('dialogues.commentPendingNotice')
+    const { data } = await api.get(`/dialogues/${route.params.id}/`)
+    dialogue.value = data
+  } catch {
+    commentError.value = t('dialogues.commentSubmitError')
+  } finally {
+    submittingComment.value = false
+  }
 }
 
 async function withdrawFromReview() {
@@ -308,12 +325,27 @@ async function withdrawFromReview() {
   font-size: 0.9rem;
 }
 
+.comment.pending {
+  border-left: 3px solid #f59e0b;
+}
+
 .comment-meta {
+  align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
   margin-bottom: 0.5rem;
   font-size: 0.8125rem;
   color: var(--color-text-muted);
+}
+
+.pending-badge {
+  background: #fef3c7;
+  border-radius: 999px;
+  color: #92400e;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
 }
 
 .comment-form textarea {

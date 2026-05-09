@@ -8,7 +8,8 @@
     "register": "Register",
     "profile": "Profile",
     "admin": "Admin",
-    "review": "Review"
+    "review": "Review",
+    "commentReview": "Comments"
   },
   "home": {
     "tagline": "A platform for dialogues between humans and artificial intelligence",
@@ -49,6 +50,9 @@
     "illustrations": "Illustrations",
     "addComment": "Add a comment",
     "submitComment": "Submit",
+    "pendingComment": "Pending moderation",
+    "commentPendingNotice": "Comment has been sent for moderation.",
+    "commentSubmitError": "Could not submit comment.",
     "noDialogues": "No dialogues yet"
   },
   "dialogue": {
@@ -129,6 +133,16 @@
     "reject": "Reject",
     "archive": "Archive",
     "notePlaceholder": "Optional note for the author"
+  },
+  "commentModeration": {
+    "title": "Comment moderation",
+    "pending": "Pending",
+    "approved": "Approved",
+    "all": "All",
+    "empty": "No comments in this queue.",
+    "staffOnly": "Only staff users can moderate comments.",
+    "approve": "Approve",
+    "reject": "Reject"
   },
   "common": {
     "loading": "Loading...",

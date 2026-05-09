@@ -6,7 +6,7 @@ from .models import Section, Interlocutor, Dialogue, Comment, Like, DialogueOrde
 from .serializers import (
     SectionSerializer, InterlocutorSerializer,
     DialogueListSerializer, DialogueDetailSerializer, DialogueWriteSerializer,
-    DialogueModerationSerializer, CommentSerializer, DialogueOrderSerializer
+    DialogueModerationSerializer, CommentSerializer, CommentReviewSerializer, DialogueOrderSerializer
 )
 
 
@@ -219,6 +219,20 @@ class CommentCreateView(generics.CreateAPIView):
         )
 
 
+class CommentReviewListView(generics.ListAPIView):
+    serializer_class = CommentReviewSerializer
+    permission_classes = [permissions.IsAdminUser]
+
+    def get_queryset(self):
+        qs = Comment.objects.select_related('author', 'dialogue')
+        approved = self.request.query_params.get('approved')
+        if approved == 'true':
+            return qs.filter(approved=True)
+        if approved == 'all':
+            return qs
+        return qs.filter(approved=False)
+
+
 class CommentApproveView(APIView):
     permission_classes = [permissions.IsAdminUser]
 
@@ -231,6 +245,34 @@ class CommentApproveView(APIView):
             object_type='Comment', object_id=str(comment.id)
         )
         return Response({'status': 'approved'})
+
+
+class CommentModerateView(APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, pk):
+        comment = generics.get_object_or_404(Comment, pk=pk)
+        action = request.data.get('action')
+        if action == 'approve':
+            comment.approved = True
+            comment.save(update_fields=['approved'])
+            AuditLog.objects.create(
+                user=request.user, action='approve_comment',
+                object_type='Comment', object_id=str(comment.id)
+            )
+            return Response(CommentReviewSerializer(comment).data)
+        if action == 'reject':
+            comment_id = comment.id
+            comment.delete()
+            AuditLog.objects.create(
+                user=request.user, action='reject_comment',
+                object_type='Comment', object_id=str(comment_id)
+            )
+            return Response({'status': 'rejected'})
+        return Response(
+            {'detail': 'Unsupported moderation action.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
 
 class LikeToggleView(APIView):
