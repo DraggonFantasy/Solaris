@@ -26,6 +26,9 @@
           <div class="dialogue-status" :class="d.status">
             {{ statusLabel(d.status) }}
           </div>
+          <p v-if="d.moderation_note" class="moderation-note">
+            {{ d.moderation_note }}
+          </p>
         </div>
         <div class="dialogue-row-meta">
           <span>{{ formatDate(d.created_at) }}</span>
@@ -149,6 +152,15 @@ function statusLabel(status) {
 .dialogue-status.archived {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.moderation-note {
+  border-left: 3px solid #fde68a;
+  color: #713f12;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin-top: 0.35rem;
+  padding-left: 0.65rem;
 }
 
 .dialogue-row-meta {

@@ -98,6 +98,7 @@
     "saveChanges": "Save changes",
     "edit": "Edit",
     "withdrawReview": "Withdraw from review",
+    "moderationMessage": "Moderator message",
     "submitReview": "Submit for Review",
     "submittedTitle": "Dialogue submitted!",
     "submittedText": "Your dialogue has been submitted for moderator review. It will be published once approved.",

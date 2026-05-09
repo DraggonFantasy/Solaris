@@ -27,6 +27,11 @@
       </div>
     </header>
 
+    <div v-if="dialogue.moderation_note" class="moderation-message">
+      <h2>{{ t('dialogue.moderationMessage') }}</h2>
+      <p>{{ dialogue.moderation_note }}</p>
+    </div>
+
     <div v-if="dialogue.summary" class="dialogue-block">
       <h2>{{ t('dialogues.summary') }}</h2>
       <p>{{ dialogue.summary }}</p>
@@ -219,6 +224,26 @@ async function withdrawFromReview() {
   display: flex;
   gap: 0.75rem;
   margin-top: 1rem;
+}
+
+.moderation-message {
+  background: #fef9c3;
+  border: 1px solid #fde68a;
+  border-radius: var(--radius);
+  color: #713f12;
+  margin: 1.5rem 0;
+  padding: 1rem;
+}
+
+.moderation-message h2 {
+  font-family: var(--font-serif);
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.moderation-message p {
+  line-height: 1.6;
+  white-space: pre-wrap;
 }
 
 .dialogue-block {
