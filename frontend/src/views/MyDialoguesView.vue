@@ -23,14 +23,14 @@
           <RouterLink :to="`/dialogues/${d.id}`" class="dialogue-row-title">
             {{ d.title }}
           </RouterLink>
-          <div class="dialogue-status" :class="d.published ? 'published' : 'draft'">
-            {{ d.published ? t('dialogue.published') : t('dialogue.pendingReview') }}
+          <div class="dialogue-status" :class="d.status">
+            {{ statusLabel(d.status) }}
           </div>
         </div>
         <div class="dialogue-row-meta">
           <span>{{ formatDate(d.created_at) }}</span>
           <span v-if="d.llm_name">{{ d.llm_name }}</span>
-          <span>♥ {{ d.likes_count }}</span>
+          <span v-if="d.status === 'published'">♥ {{ d.likes_count }}</span>
         </div>
       </div>
     </div>
@@ -58,6 +58,11 @@ onMounted(async () => {
 function formatDate(iso) {
   return new Date(iso).toLocaleDateString()
 }
+
+function statusLabel(status) {
+  return t(`dialogue.status.${status || 'draft'}`)
+}
+
 </script>
 
 <style scoped>
@@ -133,9 +138,17 @@ function formatDate(iso) {
   color: var(--color-success);
 }
 
-.dialogue-status.draft {
+.dialogue-status.draft,
+.dialogue-status.submitted,
+.dialogue-status.changes_requested {
   background: #fef9c3;
   color: #854d0e;
+}
+
+.dialogue-status.rejected,
+.dialogue-status.archived {
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .dialogue-row-meta {

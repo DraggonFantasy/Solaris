@@ -21,6 +21,12 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/dialogues/:id/edit',
+    component: () => import('../views/CreateDialogueView.vue'),
+    name: 'edit-dialogue',
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/dialogues/submitted',
     component: () => import('../views/DialogueSubmittedView.vue'),
     name: 'dialogue-submitted',
@@ -31,6 +37,12 @@ const routes = [
     component: () => import('../views/MyDialoguesView.vue'),
     name: 'my-dialogues',
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/moderation/dialogues',
+    component: () => import('../views/DialogueReviewView.vue'),
+    name: 'dialogue-review',
+    meta: { requiresAuth: true, requiresStaff: true }
   },
 ]
 
@@ -44,6 +56,9 @@ router.beforeEach((to) => {
   const auth = useAuthStore()
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  if (to.meta.requiresStaff && auth.user && !auth.isStaff) {
+    return { name: 'home' }
   }
 })
 

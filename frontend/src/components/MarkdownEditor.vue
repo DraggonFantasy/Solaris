@@ -8,9 +8,6 @@
       <button type="button" title="Blockquote" @click="insertLine('> ', 'quote')">❝</button>
       <button type="button" title="Code" @click="insert('`', '`', 'code')">{ }</button>
       <div class="toolbar-divider" />
-      <button type="button" class="turn-btn" title="Insert Human turn" @click="insertTurn('Human')">+ Human</button>
-      <button type="button" class="turn-btn" title="Insert AI turn" @click="insertTurn('AI')">+ AI</button>
-      <div class="toolbar-divider" />
       <button
         type="button"
         class="preview-toggle"
@@ -88,14 +85,6 @@ function insertLine(prefix, placeholder) {
   applyValue(newVal, lineStart + prefix.length + (props.modelValue.slice(lineStart) ? 0 : placeholder.length))
 }
 
-function insertTurn(speaker) {
-  const val = props.modelValue
-  const suffix = val && !val.endsWith('\n\n') ? (val.endsWith('\n') ? '\n' : '\n\n') : ''
-  const insertion = `${suffix}## ${speaker}\n\n`
-  const newVal = val + insertion
-  applyValue(newVal, newVal.length)
-}
-
 function onTab() {
   insert('  ', '', '')
 }
@@ -144,12 +133,6 @@ function onTab() {
   height: 20px;
   background: var(--color-border);
   margin: 0 4px;
-}
-
-.turn-btn {
-  font-size: 0.75rem !important;
-  font-weight: 600;
-  color: var(--color-primary) !important;
 }
 
 .preview-toggle {

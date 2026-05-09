@@ -10,6 +10,21 @@
         <span v-if="dialogue.llm_name">{{ t('dialogues.model') }}: <strong>{{ dialogue.llm_name }} {{ dialogue.llm_version }}</strong></span>
         <span>{{ formatDate(dialogue.created_at) }}</span>
       </div>
+      <div v-if="dialogue.authors?.length" class="dialogue-authors">
+        <span v-for="author in dialogue.authors" :key="`${author.kind}-${author.name}`" class="author-pill">
+          {{ author.name }}<small v-if="author.version"> {{ author.version }}</small>
+        </span>
+      </div>
+      <div v-if="canEdit" class="dialogue-actions">
+        <RouterLink class="btn btn-outline" :to="{ name: 'edit-dialogue', params: { id: dialogue.id } }">
+          {{ t('dialogue.edit') }}
+        </RouterLink>
+      </div>
+      <div v-else-if="canWithdraw" class="dialogue-actions">
+        <button class="btn btn-outline" :disabled="withdrawing" @click="withdrawFromReview">
+          {{ withdrawing ? t('common.loading') : t('dialogue.withdrawReview') }}
+        </button>
+      </div>
     </header>
 
     <div v-if="dialogue.summary" class="dialogue-block">
@@ -42,14 +57,14 @@
     </div>
 
     <!-- Like button -->
-    <div class="like-row">
+    <div v-if="isPublished" class="like-row">
       <button class="btn" :class="dialogue.user_has_liked ? 'btn-primary' : 'btn-outline'" @click="toggleLike">
         ♥ {{ dialogue.likes_count }}
       </button>
     </div>
 
     <!-- Comments -->
-    <section class="comments-section">
+    <section v-if="isPublished" class="comments-section">
       <h2>{{ t('dialogues.addComment') }}</h2>
       <div class="comments-list">
         <div v-for="c in dialogue.comments" :key="c.id" class="comment card">
@@ -74,7 +89,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
@@ -87,6 +102,16 @@ const auth = useAuthStore()
 const dialogue = ref(null)
 const loading = ref(true)
 const commentText = ref('')
+const withdrawing = ref(false)
+
+const isPublished = computed(() => dialogue.value?.status === 'published')
+const canEdit = computed(() => {
+  if (!dialogue.value || !auth.isAuthenticated) return false
+  return auth.isStaff || ['draft', 'changes_requested', 'rejected'].includes(dialogue.value.status)
+})
+const canWithdraw = computed(() => {
+  return auth.isAuthenticated && dialogue.value?.status === 'submitted'
+})
 
 onMounted(async () => {
   try {
@@ -102,19 +127,30 @@ function formatDate(iso) {
 }
 
 async function toggleLike() {
-  if (!auth.isAuthenticated) return
+  if (!auth.isAuthenticated || !isPublished.value) return
   const { data } = await api.post(`/dialogues/${route.params.id}/like/`)
   dialogue.value.user_has_liked = data.liked
   dialogue.value.likes_count = data.likes_count
 }
 
 async function submitComment() {
-  if (!commentText.value.trim()) return
+  if (!commentText.value.trim() || !isPublished.value) return
   await api.post(`/dialogues/${route.params.id}/comments/`, { text: commentText.value })
   commentText.value = ''
   // Reload to show pending comment notice
   const { data } = await api.get(`/dialogues/${route.params.id}/`)
   dialogue.value = data
+}
+
+async function withdrawFromReview() {
+  if (!canWithdraw.value) return
+  withdrawing.value = true
+  try {
+    const { data } = await api.post(`/dialogues/${route.params.id}/withdraw/`)
+    dialogue.value = data
+  } finally {
+    withdrawing.value = false
+  }
 }
 </script>
 
@@ -152,6 +188,32 @@ async function submitComment() {
   gap: 1.5rem;
   font-size: 0.875rem;
   color: var(--color-text-muted);
+}
+
+.dialogue-authors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.author-pill {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text);
+  font-size: 0.78rem;
+  padding: 0.25rem 0.6rem;
+}
+
+.author-pill small {
+  color: var(--color-text-muted);
+}
+
+.dialogue-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
 }
 
 .dialogue-block {
