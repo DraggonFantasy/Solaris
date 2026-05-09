@@ -30,7 +30,7 @@ class CommentInline(admin.TabularInline):
 class DialogueAdmin(admin.ModelAdmin):
     list_display = ('title', 'section', 'human_author', 'llm_name', 'status', 'published', 'created_at')
     list_filter = ('status', 'published', 'section', 'style')
-    search_fields = ('title', 'text', 'summary')
+    search_fields = ('title', 'text', 'summary', 'review_note', 'moderation_note')
     list_editable = ('status',)
     filter_horizontal = ('interlocutors',)
     inlines = [IllustrationInline, CommentInline]

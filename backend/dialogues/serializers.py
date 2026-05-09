@@ -41,6 +41,7 @@ class DialogueListSerializer(serializers.ModelSerializer):
     section_name = serializers.CharField(source='section.name', read_only=True)
     section_slug = serializers.CharField(source='section.slug', read_only=True)
     human_author_username = serializers.CharField(source='human_author.username', read_only=True)
+    review_note = serializers.SerializerMethodField()
     likes_count = serializers.IntegerField(read_only=True)
     comments_count = serializers.IntegerField(read_only=True)
 
@@ -48,8 +49,16 @@ class DialogueListSerializer(serializers.ModelSerializer):
         model = Dialogue
         fields = ('id', 'title', 'section', 'section_name', 'section_slug', 'summary', 'style',
                   'human_author_username', 'authors', 'llm_name', 'llm_version',
-                  'status', 'moderation_note', 'published', 'created_at',
+                  'status', 'review_note', 'moderation_note', 'published', 'created_at',
                   'likes_count', 'comments_count')
+
+    def get_review_note(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return ''
+        if request.user.is_staff or obj.human_author_id == request.user.id:
+            return obj.review_note
+        return ''
 
 
 class DialogueDetailSerializer(serializers.ModelSerializer):
@@ -62,6 +71,7 @@ class DialogueDetailSerializer(serializers.ModelSerializer):
     comments = serializers.SerializerMethodField()
     likes_count = serializers.IntegerField(read_only=True)
     user_has_liked = serializers.SerializerMethodField()
+    review_note = serializers.SerializerMethodField()
 
     class Meta:
         model = Dialogue
@@ -69,7 +79,7 @@ class DialogueDetailSerializer(serializers.ModelSerializer):
                   'food_for_thought', 'recommended_literature', 'style',
                   'human_author_username', 'human_author_bio',
                   'authors', 'llm_name', 'llm_version', 'interlocutors', 'illustrations',
-                  'status', 'moderation_note', 'published', 'created_at', 'updated_at',
+                  'status', 'review_note', 'moderation_note', 'published', 'created_at', 'updated_at',
                   'likes_count', 'user_has_liked', 'comments')
 
     def get_comments(self, obj):
@@ -86,6 +96,14 @@ class DialogueDetailSerializer(serializers.ModelSerializer):
             return obj.likes.filter(user=request.user).exists()
         return False
 
+    def get_review_note(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return ''
+        if request.user.is_staff or obj.human_author_id == request.user.id:
+            return obj.review_note
+        return ''
+
 
 class DialogueWriteSerializer(serializers.ModelSerializer):
     interlocutor_ids = serializers.PrimaryKeyRelatedField(
@@ -97,7 +115,7 @@ class DialogueWriteSerializer(serializers.ModelSerializer):
         model = Dialogue
         fields = ('id', 'title', 'section', 'text', 'summary', 'food_for_thought',
                   'recommended_literature', 'style', 'llm_name', 'llm_version',
-                  'authors', 'interlocutor_ids', 'status', 'published')
+                  'authors', 'review_note', 'interlocutor_ids', 'status', 'published')
         read_only_fields = ('id', 'published')
 
     def validate_status(self, value):
