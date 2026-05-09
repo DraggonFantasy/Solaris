@@ -39,13 +39,14 @@ class CommentSerializer(serializers.ModelSerializer):
 
 class DialogueListSerializer(serializers.ModelSerializer):
     section_name = serializers.CharField(source='section.name', read_only=True)
+    section_slug = serializers.CharField(source='section.slug', read_only=True)
     human_author_username = serializers.CharField(source='human_author.username', read_only=True)
     likes_count = serializers.IntegerField(read_only=True)
     comments_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Dialogue
-        fields = ('id', 'title', 'section', 'section_name', 'summary', 'style',
+        fields = ('id', 'title', 'section', 'section_name', 'section_slug', 'summary', 'style',
                   'human_author_username', 'authors', 'llm_name', 'llm_version',
                   'status', 'moderation_note', 'published', 'created_at',
                   'likes_count', 'comments_count')
@@ -53,6 +54,7 @@ class DialogueListSerializer(serializers.ModelSerializer):
 
 class DialogueDetailSerializer(serializers.ModelSerializer):
     section_name = serializers.CharField(source='section.name', read_only=True)
+    section_slug = serializers.CharField(source='section.slug', read_only=True)
     human_author_username = serializers.CharField(source='human_author.username', read_only=True)
     human_author_bio = serializers.CharField(source='human_author.bio', read_only=True)
     interlocutors = InterlocutorSerializer(many=True, read_only=True)
@@ -63,7 +65,7 @@ class DialogueDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dialogue
-        fields = ('id', 'title', 'section', 'section_name', 'text', 'summary',
+        fields = ('id', 'title', 'section', 'section_name', 'section_slug', 'text', 'summary',
                   'food_for_thought', 'recommended_literature', 'style',
                   'human_author_username', 'human_author_bio',
                   'authors', 'llm_name', 'llm_version', 'interlocutors', 'illustrations',
