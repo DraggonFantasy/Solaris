@@ -1,3 +1,4 @@
+from django.db import models
 from rest_framework import serializers
 from .models import Section, Interlocutor, Dialogue, DialogueIllustration, Comment, Like, DialogueOrder
 
@@ -35,6 +36,20 @@ class CommentSerializer(serializers.ModelSerializer):
         model = Comment
         fields = ('id', 'author_username', 'text', 'approved', 'created_at')
         read_only_fields = ('approved', 'created_at')
+
+
+class CommentReviewSerializer(serializers.ModelSerializer):
+    author_username = serializers.CharField(source='author.username', read_only=True)
+    dialogue_id = serializers.IntegerField(source='dialogue.id', read_only=True)
+    dialogue_title = serializers.CharField(source='dialogue.title', read_only=True)
+
+    class Meta:
+        model = Comment
+        fields = (
+            'id', 'author_username', 'dialogue_id', 'dialogue_title',
+            'text', 'approved', 'created_at',
+        )
+        read_only_fields = fields
 
 
 class DialogueListSerializer(serializers.ModelSerializer):
@@ -85,8 +100,14 @@ class DialogueDetailSerializer(serializers.ModelSerializer):
     def get_comments(self, obj):
         if obj.status != Dialogue.STATUS_PUBLISHED:
             return []
-        approved = obj.comments.filter(approved=True)
-        return CommentSerializer(approved, many=True).data
+        qs = obj.comments.filter(approved=True)
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            if request.user.is_staff:
+                qs = obj.comments.all()
+            else:
+                qs = obj.comments.filter(models.Q(approved=True) | models.Q(author=request.user))
+        return CommentSerializer(qs, many=True).data
 
     def get_user_has_liked(self, obj):
         if obj.status != Dialogue.STATUS_PUBLISHED:

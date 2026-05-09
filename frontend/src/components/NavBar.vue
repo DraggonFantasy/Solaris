@@ -16,6 +16,7 @@
         <template v-if="auth.isAuthenticated">
           <RouterLink to="/my-dialogues">{{ t('dialogue.myDialogues') }}</RouterLink>
           <RouterLink v-if="auth.isStaff" to="/moderation/dialogues">{{ t('nav.review') }}</RouterLink>
+          <RouterLink v-if="auth.isStaff" to="/moderation/comments">{{ t('nav.commentReview') }}</RouterLink>
           <RouterLink class="btn btn-primary btn-sm" to="/dialogues/create">+ {{ t('dialogue.createBtn') }}</RouterLink>
           <RouterLink class="navbar-user" to="/profile">{{ auth.user?.username }}</RouterLink>
           <a v-if="auth.isStaff" href="/admin/" class="btn btn-outline btn-sm">

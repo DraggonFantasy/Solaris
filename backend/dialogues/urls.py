@@ -4,7 +4,7 @@ from .views import (
     InterlocutorListView,
     DialogueListView, DialogueDetailView, MyDialoguesView,
     DialogueReviewListView, DialogueModerateView, DialogueWithdrawView,
-    CommentCreateView, CommentApproveView,
+    CommentCreateView, CommentReviewListView, CommentApproveView, CommentModerateView,
     LikeToggleView,
     DialogueOrderListView,
 )
@@ -21,6 +21,8 @@ urlpatterns = [
     path('dialogues/<int:pk>/withdraw/', DialogueWithdrawView.as_view(), name='dialogue_withdraw'),
     path('dialogues/<int:dialogue_id>/comments/', CommentCreateView.as_view(), name='comment_create'),
     path('dialogues/<int:dialogue_id>/like/', LikeToggleView.as_view(), name='like_toggle'),
+    path('comments/review/', CommentReviewListView.as_view(), name='comment_review_list'),
+    path('comments/<int:pk>/moderate/', CommentModerateView.as_view(), name='comment_moderate'),
     path('comments/<int:pk>/approve/', CommentApproveView.as_view(), name='comment_approve'),
     path('orders/', DialogueOrderListView.as_view(), name='dialogue_orders'),
 ]

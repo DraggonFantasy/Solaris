@@ -8,7 +8,8 @@
     "register": "Реєстрація",
     "profile": "Профіль",
     "admin": "Адмін",
-    "review": "Модерація"
+    "review": "Модерація",
+    "commentReview": "Коментарі"
   },
   "home": {
     "tagline": "Середовище для діалогів між людиною та штучним інтелектом",
@@ -49,6 +50,9 @@
     "illustrations": "Ілюстрації",
     "addComment": "Додати коментар",
     "submitComment": "Надіслати",
+    "pendingComment": "Очікує модерації",
+    "commentPendingNotice": "Коментар надіслано на модерацію.",
+    "commentSubmitError": "Не вдалося надіслати коментар.",
     "noDialogues": "Діалогів поки немає"
   },
   "dialogue": {
@@ -129,6 +133,16 @@
     "reject": "Відхилити",
     "archive": "В архів",
     "notePlaceholder": "Необов'язкова нотатка для автора"
+  },
+  "commentModeration": {
+    "title": "Модерація коментарів",
+    "pending": "Очікують",
+    "approved": "Схвалені",
+    "all": "Усі",
+    "empty": "У цій черзі немає коментарів.",
+    "staffOnly": "Модерувати коментарі можуть лише staff-користувачі.",
+    "approve": "Схвалити",
+    "reject": "Відхилити"
   },
   "common": {
     "loading": "Завантаження...",
