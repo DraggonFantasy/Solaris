@@ -113,6 +113,13 @@ class DialogueIllustration(models.Model):
 
 class Comment(models.Model):
     dialogue = models.ForeignKey(Dialogue, on_delete=models.CASCADE, related_name='comments')
+    parent = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='replies'
+    )
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,

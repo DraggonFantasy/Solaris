@@ -72,19 +72,65 @@
     <section v-if="isPublished" class="comments-section">
       <h2>{{ t('dialogues.addComment') }}</h2>
       <div class="comments-list">
-        <div v-for="c in dialogue.comments" :key="c.id" class="comment card" :class="{ pending: !c.approved }">
+        <div
+          v-for="c in threadedComments"
+          :key="c.id"
+          class="comment card"
+          :class="{ pending: !c.approved }"
+          :style="{ marginLeft: `${Math.min(c.depth, 3) * 1.25}rem` }"
+        >
           <div class="comment-meta">
             <strong>{{ c.author_username }}</strong>
             <span>{{ formatDate(c.created_at) }}</span>
             <span v-if="!c.approved" class="pending-badge">{{ t('dialogues.pendingComment') }}</span>
           </div>
-          <p>{{ c.text }}</p>
+          <div v-if="c.parent_author_username" class="reply-context">
+            {{ t('dialogues.replyTo') }} {{ c.parent_author_username }}
+          </div>
+          <p v-if="editingCommentId !== c.id">{{ c.text }}</p>
+          <form v-else class="comment-form reply-form" @submit.prevent="saveCommentEdit(c)">
+            <div v-if="commentError" class="alert alert-error">{{ commentError }}</div>
+            <div class="form-group">
+              <textarea v-model="editCommentText" rows="3" required />
+            </div>
+            <div class="reply-actions">
+              <button class="btn btn-primary btn-sm" type="submit" :disabled="submittingComment">
+                {{ submittingComment ? t('common.loading') : t('common.save') }}
+              </button>
+              <button class="btn btn-outline btn-sm" type="button" @click="cancelCommentEdit">
+                {{ t('common.cancel') }}
+              </button>
+            </div>
+          </form>
+          <div v-if="editingCommentId !== c.id" class="comment-inline-actions">
+            <button v-if="auth.isAuthenticated && c.approved" class="comment-action-btn" type="button" @click="startReply(c)">
+              {{ t('dialogues.reply') }}
+            </button>
+            <button v-if="canEditComment(c)" class="comment-action-btn" type="button" @click="startCommentEdit(c)">
+              {{ t('dialogues.editComment') }}
+            </button>
+          </div>
+
+          <form v-if="activeReplyId === c.id" class="comment-form reply-form" @submit.prevent="submitComment(c.id)">
+            <div v-if="commentError" class="alert alert-error">{{ commentError }}</div>
+            <div class="form-group">
+              <textarea v-model="replyText" rows="3" required :placeholder="t('dialogues.replyPlaceholder')" />
+            </div>
+            <div class="reply-actions">
+              <button class="btn btn-primary btn-sm" type="submit" :disabled="submittingComment">
+                {{ submittingComment ? t('common.loading') : t('dialogues.submitComment') }}
+              </button>
+              <button class="btn btn-outline btn-sm" type="button" @click="cancelReply">
+                {{ t('common.cancel') }}
+              </button>
+            </div>
+          </form>
         </div>
       </div>
 
-      <form v-if="auth.isAuthenticated" class="comment-form" @submit.prevent="submitComment">
+      <form v-if="auth.isAuthenticated" class="comment-form" @submit.prevent="submitComment()">
         <div v-if="commentNotice" class="alert alert-success">{{ commentNotice }}</div>
-        <div v-if="commentError" class="alert alert-error">{{ commentError }}</div>
+        <div v-if="commentError && !activeReplyId" class="alert alert-error">{{ commentError }}</div>
         <div class="form-group">
           <textarea v-model="commentText" rows="3" required :placeholder="t('dialogues.addComment')" />
         </div>
@@ -115,6 +161,10 @@ const commentText = ref('')
 const commentNotice = ref('')
 const commentError = ref('')
 const submittingComment = ref(false)
+const activeReplyId = ref(null)
+const replyText = ref('')
+const editingCommentId = ref(null)
+const editCommentText = ref('')
 const withdrawing = ref(false)
 
 const isPublished = computed(() => dialogue.value?.status === 'published')
@@ -129,6 +179,30 @@ const backTarget = computed(() => {
   if (!dialogue.value) return { name: 'sections' }
   if (dialogue.value.status !== 'published') return { name: 'my-dialogues' }
   return `/sections/${dialogue.value.section_slug}`
+})
+const threadedComments = computed(() => {
+  const comments = dialogue.value?.comments || []
+  const byParent = new Map()
+  const ids = new Set(comments.map((comment) => comment.id))
+  comments.forEach((comment) => {
+    const parentId = comment.parent && ids.has(comment.parent) ? comment.parent : null
+    if (!byParent.has(parentId)) byParent.set(parentId, [])
+    byParent.get(parentId).push(comment)
+  })
+
+  const flatten = (parentId = null, depth = 0, seen = new Set()) => {
+    return (byParent.get(parentId) || []).flatMap((comment) => {
+      if (seen.has(comment.id)) return []
+      const nextSeen = new Set(seen)
+      nextSeen.add(comment.id)
+      return [
+        { ...comment, depth },
+        ...flatten(comment.id, depth + 1, nextSeen),
+      ]
+    })
+  }
+
+  return flatten()
 })
 
 onMounted(async () => {
@@ -151,17 +225,71 @@ async function toggleLike() {
   dialogue.value.likes_count = data.likes_count
 }
 
-async function submitComment() {
-  if (!commentText.value.trim() || !isPublished.value) return
+async function submitComment(parentId = null) {
+  const text = parentId ? replyText.value : commentText.value
+  if (!text.trim() || !isPublished.value) return
   commentNotice.value = ''
   commentError.value = ''
   submittingComment.value = true
   try {
-    await api.post(`/dialogues/${route.params.id}/comments/`, { text: commentText.value })
-    commentText.value = ''
+    await api.post(`/dialogues/${route.params.id}/comments/`, {
+      text,
+      parent: parentId,
+    })
+    if (parentId) {
+      cancelReply()
+    } else {
+      commentText.value = ''
+    }
     commentNotice.value = t('dialogues.commentPendingNotice')
     const { data } = await api.get(`/dialogues/${route.params.id}/`)
     dialogue.value = data
+  } catch {
+    commentError.value = t('dialogues.commentSubmitError')
+  } finally {
+    submittingComment.value = false
+  }
+}
+
+function canEditComment(comment) {
+  return auth.isAuthenticated && !comment.approved && comment.author_id === auth.user?.id
+}
+
+function startReply(comment) {
+  if (!comment.approved) return
+  activeReplyId.value = comment.id
+  editingCommentId.value = null
+  editCommentText.value = ''
+  replyText.value = ''
+  commentError.value = ''
+}
+
+function cancelReply() {
+  activeReplyId.value = null
+  replyText.value = ''
+}
+
+function startCommentEdit(comment) {
+  editingCommentId.value = comment.id
+  activeReplyId.value = null
+  replyText.value = ''
+  editCommentText.value = comment.text
+  commentError.value = ''
+}
+
+function cancelCommentEdit() {
+  editingCommentId.value = null
+  editCommentText.value = ''
+}
+
+async function saveCommentEdit(comment) {
+  if (!editCommentText.value.trim()) return
+  commentError.value = ''
+  submittingComment.value = true
+  try {
+    await api.patch(`/comments/${comment.id}/`, { text: editCommentText.value })
+    comment.text = editCommentText.value
+    cancelCommentEdit()
   } catch {
     commentError.value = t('dialogues.commentSubmitError')
   } finally {
@@ -346,6 +474,42 @@ async function withdrawFromReview() {
   font-size: 0.7rem;
   font-weight: 600;
   padding: 0.1rem 0.45rem;
+}
+
+.reply-context {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  margin-bottom: 0.4rem;
+}
+
+.comment-inline-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.comment-action-btn {
+  background: transparent;
+  border: 0;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: 0.82rem;
+  padding: 0;
+}
+
+.comment-action-btn:hover {
+  text-decoration: underline;
+}
+
+.reply-form {
+  border-top: 1px solid var(--color-border);
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+}
+
+.reply-actions {
+  display: flex;
+  gap: 0.5rem;
 }
 
 .comment-form textarea {

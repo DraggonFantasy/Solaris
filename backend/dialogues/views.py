@@ -1,12 +1,13 @@
 from django.db import models
-from rest_framework import generics, permissions, status
+from rest_framework import generics, permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from .models import Section, Interlocutor, Dialogue, Comment, Like, DialogueOrder, AuditLog
 from .serializers import (
     SectionSerializer, InterlocutorSerializer,
     DialogueListSerializer, DialogueDetailSerializer, DialogueWriteSerializer,
-    DialogueModerationSerializer, CommentSerializer, CommentReviewSerializer, DialogueOrderSerializer
+    DialogueModerationSerializer, CommentSerializer, CommentEditSerializer,
+    CommentReviewSerializer, DialogueOrderSerializer
 )
 
 
@@ -212,9 +213,30 @@ class CommentCreateView(generics.CreateAPIView):
             pk=self.kwargs['dialogue_id'],
             status=Dialogue.STATUS_PUBLISHED,
         )
+        parent = serializer.validated_data.get('parent')
+        if parent and parent.dialogue_id != dialogue.id:
+            raise serializers.ValidationError({'parent': 'Parent comment belongs to another dialogue.'})
+        if parent and not parent.approved:
+            raise serializers.ValidationError({'parent': 'Replies to unpublished comments are not allowed.'})
         comment = serializer.save(author=self.request.user, dialogue=dialogue)
         AuditLog.objects.create(
             user=self.request.user, action='create_comment',
+            object_type='Comment', object_id=str(comment.id)
+        )
+
+
+class CommentUpdateView(generics.UpdateAPIView):
+    serializer_class = CommentEditSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ['patch', 'put', 'options']
+
+    def get_queryset(self):
+        return Comment.objects.filter(author=self.request.user, approved=False)
+
+    def perform_update(self, serializer):
+        comment = serializer.save()
+        AuditLog.objects.create(
+            user=self.request.user, action='update_comment',
             object_type='Comment', object_id=str(comment.id)
         )
 
@@ -224,7 +246,7 @@ class CommentReviewListView(generics.ListAPIView):
     permission_classes = [permissions.IsAdminUser]
 
     def get_queryset(self):
-        qs = Comment.objects.select_related('author', 'dialogue')
+        qs = Comment.objects.select_related('author', 'dialogue', 'parent', 'parent__author')
         approved = self.request.query_params.get('approved')
         if approved == 'true':
             return qs.filter(approved=True)
