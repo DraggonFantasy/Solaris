@@ -83,6 +83,8 @@
     "addSpeaker": "Add",
     "speakerNamePlaceholder": "Speaker name",
     "noSpeakers": "Speakers will appear here after headings are added to the text.",
+    "textRequired": "Add dialogue text.",
+    "speakerHeadingRequired": "Add at least one speaker heading in the format ## Name.",
     "importFrom": "Import from",
     "importStub": "Import from {source} is not connected yet. Paste exported text manually for now.",
     "style": "Dialogue style",
