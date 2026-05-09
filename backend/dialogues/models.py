@@ -73,6 +73,7 @@ class Dialogue(models.Model):
     llm_version = models.CharField(max_length=100, blank=True)
     interlocutors = models.ManyToManyField(Interlocutor, blank=True, related_name='dialogues')
     status = models.CharField(max_length=32, choices=STATUS_CHOICES, default=STATUS_DRAFT)
+    review_note = models.TextField(blank=True)
     moderation_note = models.TextField(blank=True)
     published = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)

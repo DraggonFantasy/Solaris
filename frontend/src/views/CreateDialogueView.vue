@@ -155,6 +155,11 @@
           <textarea v-model="form.recommended_literature" rows="3" :placeholder="t('dialogue.literaturePlaceholder')" />
         </div>
 
+        <div class="form-group">
+          <label>{{ t('dialogue.reviewNote') }}</label>
+          <textarea v-model="form.review_note" rows="3" :placeholder="t('dialogue.reviewNotePlaceholder')" />
+        </div>
+
         <div v-if="error" class="alert alert-error">{{ error }}</div>
       </div>
 
@@ -294,6 +299,7 @@ const form = ref({
   summary: '',
   food_for_thought: '',
   recommended_literature: '',
+  review_note: '',
 })
 
 const dialoguePlaceholder = computed(() => {
@@ -405,6 +411,7 @@ async function loadDialogue() {
     summary: data.summary || '',
     food_for_thought: data.food_for_thought || '',
     recommended_literature: data.recommended_literature || '',
+    review_note: data.review_note || '',
   }
   authors.value = (data.authors || []).map((author) => ({
     ...author,

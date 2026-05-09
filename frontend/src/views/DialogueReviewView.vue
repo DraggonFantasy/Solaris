@@ -29,6 +29,10 @@
             <span>{{ formatDate(dialogue.created_at) }}</span>
             <span class="dialogue-status" :class="dialogue.status">{{ t(`dialogue.status.${dialogue.status}`) }}</span>
           </div>
+          <div v-if="dialogue.review_note" class="review-note">
+            <strong>{{ t('dialogue.reviewNote') }}</strong>
+            <p>{{ dialogue.review_note }}</p>
+          </div>
           <p v-if="dialogue.moderation_note" class="moderation-note">{{ dialogue.moderation_note }}</p>
         </div>
 
@@ -228,6 +232,26 @@ function formatDate(iso) {
   font-size: 0.875rem;
   margin-top: 0.75rem;
   padding-left: 0.75rem;
+}
+
+.review-note {
+  background: var(--color-bg);
+  border-left: 3px solid var(--color-primary);
+  font-size: 0.875rem;
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.review-note strong {
+  color: var(--color-text);
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.review-note p {
+  color: var(--color-text-muted);
+  margin: 0;
+  white-space: pre-wrap;
 }
 
 .review-actions {

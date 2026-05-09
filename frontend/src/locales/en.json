@@ -95,6 +95,8 @@
     "styleDebate": "Debate",
     "foodPlaceholder": "Questions or thoughts for further reflection...",
     "literaturePlaceholder": "Books, articles, links...",
+    "reviewNote": "Message to moderator",
+    "reviewNotePlaceholder": "Optional context for the moderator before review...",
     "next": "Next",
     "saveDraft": "Save Draft",
     "saveChanges": "Save changes",
