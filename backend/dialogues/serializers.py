@@ -46,8 +46,9 @@ class DialogueListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Dialogue
         fields = ('id', 'title', 'section', 'section_name', 'summary', 'style',
-                  'human_author_username', 'llm_name', 'llm_version',
-                  'published', 'created_at', 'likes_count', 'comments_count')
+                  'human_author_username', 'authors', 'llm_name', 'llm_version',
+                  'status', 'moderation_note', 'published', 'created_at',
+                  'likes_count', 'comments_count')
 
 
 class DialogueDetailSerializer(serializers.ModelSerializer):
@@ -65,15 +66,19 @@ class DialogueDetailSerializer(serializers.ModelSerializer):
         fields = ('id', 'title', 'section', 'section_name', 'text', 'summary',
                   'food_for_thought', 'recommended_literature', 'style',
                   'human_author_username', 'human_author_bio',
-                  'llm_name', 'llm_version', 'interlocutors', 'illustrations',
-                  'published', 'created_at', 'updated_at',
+                  'authors', 'llm_name', 'llm_version', 'interlocutors', 'illustrations',
+                  'status', 'moderation_note', 'published', 'created_at', 'updated_at',
                   'likes_count', 'user_has_liked', 'comments')
 
     def get_comments(self, obj):
+        if obj.status != Dialogue.STATUS_PUBLISHED:
+            return []
         approved = obj.comments.filter(approved=True)
         return CommentSerializer(approved, many=True).data
 
     def get_user_has_liked(self, obj):
+        if obj.status != Dialogue.STATUS_PUBLISHED:
+            return False
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             return obj.likes.filter(user=request.user).exists()
@@ -88,9 +93,45 @@ class DialogueWriteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dialogue
-        fields = ('title', 'section', 'text', 'summary', 'food_for_thought',
+        fields = ('id', 'title', 'section', 'text', 'summary', 'food_for_thought',
                   'recommended_literature', 'style', 'llm_name', 'llm_version',
-                  'interlocutor_ids', 'published')
+                  'authors', 'interlocutor_ids', 'status', 'published')
+        read_only_fields = ('id', 'published')
+
+    def validate_status(self, value):
+        request = self.context.get('request')
+        if request and request.user.is_staff:
+            return value
+        allowed = {Dialogue.STATUS_DRAFT, Dialogue.STATUS_SUBMITTED}
+        if value not in allowed:
+            raise serializers.ValidationError('Only draft or submitted status is allowed.')
+        return value
+
+    def validate(self, attrs):
+        if attrs.get('published') and not attrs.get('status'):
+            attrs['status'] = Dialogue.STATUS_SUBMITTED
+        authors = attrs.get('authors')
+        if authors is not None and not isinstance(authors, list):
+            raise serializers.ValidationError({'authors': 'Authors must be a list.'})
+        return attrs
+
+
+class DialogueModerationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Dialogue
+        fields = ('status', 'moderation_note')
+
+    def validate_status(self, value):
+        allowed = {
+            Dialogue.STATUS_SUBMITTED,
+            Dialogue.STATUS_CHANGES_REQUESTED,
+            Dialogue.STATUS_REJECTED,
+            Dialogue.STATUS_PUBLISHED,
+            Dialogue.STATUS_ARCHIVED,
+        }
+        if value not in allowed:
+            raise serializers.ValidationError('Unsupported moderation status.')
+        return value
 
 
 class DialogueOrderSerializer(serializers.ModelSerializer):

@@ -28,10 +28,10 @@ class CommentInline(admin.TabularInline):
 
 @admin.register(Dialogue)
 class DialogueAdmin(admin.ModelAdmin):
-    list_display = ('title', 'section', 'human_author', 'llm_name', 'published', 'created_at')
-    list_filter = ('published', 'section', 'style')
+    list_display = ('title', 'section', 'human_author', 'llm_name', 'status', 'published', 'created_at')
+    list_filter = ('status', 'published', 'section', 'style')
     search_fields = ('title', 'text', 'summary')
-    list_editable = ('published',)
+    list_editable = ('status',)
     filter_horizontal = ('interlocutors',)
     inlines = [IllustrationInline, CommentInline]
     readonly_fields = ('created_at', 'updated_at')

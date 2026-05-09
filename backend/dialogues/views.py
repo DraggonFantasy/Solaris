@@ -1,3 +1,4 @@
+from django.db import models
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -5,7 +6,7 @@ from .models import Section, Interlocutor, Dialogue, Comment, Like, DialogueOrde
 from .serializers import (
     SectionSerializer, InterlocutorSerializer,
     DialogueListSerializer, DialogueDetailSerializer, DialogueWriteSerializer,
-    CommentSerializer, DialogueOrderSerializer
+    DialogueModerationSerializer, CommentSerializer, DialogueOrderSerializer
 )
 
 
@@ -14,6 +15,19 @@ class IsAuthorOrReadOnly(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return True
         return obj.human_author == request.user or request.user.is_staff
+
+
+class IsAuthorEditableOrStaff(permissions.BasePermission):
+    editable_statuses = {
+        Dialogue.STATUS_DRAFT,
+        Dialogue.STATUS_CHANGES_REQUESTED,
+        Dialogue.STATUS_REJECTED,
+    }
+
+    def has_object_permission(self, request, view, obj):
+        if request.user.is_staff:
+            return True
+        return obj.human_author == request.user and obj.status in self.editable_statuses
 
 
 class SectionListView(generics.ListCreateAPIView):
@@ -63,7 +77,7 @@ class DialogueListView(generics.ListCreateAPIView):
         if section_slug:
             qs = qs.filter(section__slug=section_slug)
         if not (self.request.user.is_authenticated and self.request.user.is_staff):
-            qs = qs.filter(published=True)
+            qs = qs.filter(status=Dialogue.STATUS_PUBLISHED)
         return qs
 
     def get_permissions(self):
@@ -86,7 +100,14 @@ class DialogueListView(generics.ListCreateAPIView):
 
 
 class DialogueDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Dialogue.objects.all()
+    def get_queryset(self):
+        qs = Dialogue.objects.all()
+        user = self.request.user
+        if user.is_authenticated and user.is_staff:
+            return qs
+        if user.is_authenticated:
+            return qs.filter(models.Q(status=Dialogue.STATUS_PUBLISHED) | models.Q(human_author=user))
+        return qs.filter(status=Dialogue.STATUS_PUBLISHED)
 
     def get_serializer_class(self):
         if self.request.method in permissions.SAFE_METHODS:
@@ -96,7 +117,7 @@ class DialogueDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_permissions(self):
         if self.request.method in permissions.SAFE_METHODS:
             return [permissions.AllowAny()]
-        return [permissions.IsAuthenticated(), IsAuthorOrReadOnly()]
+        return [permissions.IsAuthenticated(), IsAuthorEditableOrStaff()]
 
     def perform_update(self, serializer):
         dialogue = serializer.save()
@@ -124,12 +145,73 @@ class MyDialoguesView(generics.ListAPIView):
         ).select_related('section', 'human_author')
 
 
+class DialogueReviewListView(generics.ListAPIView):
+    serializer_class = DialogueListSerializer
+    permission_classes = [permissions.IsAdminUser]
+
+    def get_queryset(self):
+        status_filter = self.request.query_params.get('status')
+        qs = Dialogue.objects.select_related('section', 'human_author')
+        if status_filter:
+            return qs.filter(status=status_filter)
+        return qs.exclude(status=Dialogue.STATUS_DRAFT)
+
+
+class DialogueModerateView(generics.UpdateAPIView):
+    queryset = Dialogue.objects.all()
+    serializer_class = DialogueModerationSerializer
+    permission_classes = [permissions.IsAdminUser]
+    http_method_names = ['patch', 'post', 'options']
+
+    def post(self, request, *args, **kwargs):
+        return self.partial_update(request, *args, **kwargs)
+
+    def perform_update(self, serializer):
+        dialogue = serializer.save()
+        AuditLog.objects.create(
+            user=self.request.user,
+            action='moderate_dialogue',
+            object_type='Dialogue',
+            object_id=str(dialogue.id),
+            details=f'Status changed to {dialogue.status}'
+        )
+
+
+class DialogueWithdrawView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        dialogue = generics.get_object_or_404(Dialogue, pk=pk)
+        is_author = dialogue.human_author == request.user
+        if not (is_author or request.user.is_staff):
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if dialogue.status != Dialogue.STATUS_SUBMITTED:
+            return Response(
+                {'detail': 'Only submitted dialogues can be withdrawn.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        dialogue.status = Dialogue.STATUS_DRAFT
+        dialogue.save(update_fields=['status', 'published', 'updated_at'])
+        AuditLog.objects.create(
+            user=request.user,
+            action='withdraw_dialogue',
+            object_type='Dialogue',
+            object_id=str(dialogue.id),
+            details='Withdrawn from review'
+        )
+        return Response(DialogueDetailSerializer(dialogue, context={'request': request}).data)
+
+
 class CommentCreateView(generics.CreateAPIView):
     serializer_class = CommentSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def perform_create(self, serializer):
-        dialogue = generics.get_object_or_404(Dialogue, pk=self.kwargs['dialogue_id'])
+        dialogue = generics.get_object_or_404(
+            Dialogue,
+            pk=self.kwargs['dialogue_id'],
+            status=Dialogue.STATUS_PUBLISHED,
+        )
         comment = serializer.save(author=self.request.user, dialogue=dialogue)
         AuditLog.objects.create(
             user=self.request.user, action='create_comment',
@@ -155,7 +237,7 @@ class LikeToggleView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, dialogue_id):
-        dialogue = generics.get_object_or_404(Dialogue, pk=dialogue_id, published=True)
+        dialogue = generics.get_object_or_404(Dialogue, pk=dialogue_id, status=Dialogue.STATUS_PUBLISHED)
         like, created = Like.objects.get_or_create(dialogue=dialogue, user=request.user)
         if not created:
             like.delete()
