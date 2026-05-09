@@ -32,6 +32,22 @@ class Interlocutor(models.Model):
 
 
 class Dialogue(models.Model):
+    STATUS_DRAFT = 'draft'
+    STATUS_SUBMITTED = 'submitted'
+    STATUS_CHANGES_REQUESTED = 'changes_requested'
+    STATUS_REJECTED = 'rejected'
+    STATUS_PUBLISHED = 'published'
+    STATUS_ARCHIVED = 'archived'
+
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, 'Draft'),
+        (STATUS_SUBMITTED, 'Submitted for review'),
+        (STATUS_CHANGES_REQUESTED, 'Changes requested'),
+        (STATUS_REJECTED, 'Rejected'),
+        (STATUS_PUBLISHED, 'Published'),
+        (STATUS_ARCHIVED, 'Archived'),
+    ]
+
     STYLE_CHOICES = [
         ('rhetorical', 'Rhetorical'),
         ('dialectical', 'Dialectical'),
@@ -52,9 +68,12 @@ class Dialogue(models.Model):
         on_delete=models.SET_NULL,
         null=True, related_name='dialogues'
     )
+    authors = models.JSONField(default=list, blank=True)
     llm_name = models.CharField(max_length=100, blank=True)
     llm_version = models.CharField(max_length=100, blank=True)
     interlocutors = models.ManyToManyField(Interlocutor, blank=True, related_name='dialogues')
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default=STATUS_DRAFT)
+    moderation_note = models.TextField(blank=True)
     published = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -64,6 +83,10 @@ class Dialogue(models.Model):
 
     def __str__(self):
         return self.title
+
+    def save(self, *args, **kwargs):
+        self.published = self.status == self.STATUS_PUBLISHED
+        super().save(*args, **kwargs)
 
     @property
     def likes_count(self):
