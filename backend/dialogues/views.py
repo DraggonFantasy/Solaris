@@ -218,7 +218,11 @@ class CommentCreateView(generics.CreateAPIView):
             raise serializers.ValidationError({'parent': 'Parent comment belongs to another dialogue.'})
         if parent and not parent.approved:
             raise serializers.ValidationError({'parent': 'Replies to unpublished comments are not allowed.'})
-        comment = serializer.save(author=self.request.user, dialogue=dialogue)
+        comment = serializer.save(
+            author=self.request.user,
+            dialogue=dialogue,
+            approved=self.request.user.is_staff,
+        )
         AuditLog.objects.create(
             user=self.request.user, action='create_comment',
             object_type='Comment', object_id=str(comment.id)

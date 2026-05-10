@@ -32,6 +32,26 @@
       <p>{{ dialogue.moderation_note }}</p>
     </div>
 
+    <form v-if="auth.isStaff" class="staff-status-panel card" @submit.prevent="updateDialogueStatus">
+      <div class="staff-status-main">
+        <label>
+          {{ t('moderation.statusLabel') }}
+          <select v-model="statusDraft">
+            <option v-for="status in moderationStatuses" :key="status" :value="status">
+              {{ t(`dialogue.status.${status}`) }}
+            </option>
+          </select>
+        </label>
+        <label>
+          {{ t('dialogue.moderationMessage') }}
+          <textarea v-model="moderationNoteDraft" rows="2" :placeholder="t('moderation.notePlaceholder')" />
+        </label>
+      </div>
+      <button class="btn btn-primary btn-sm" type="submit" :disabled="savingStatus">
+        {{ savingStatus ? t('common.loading') : t('common.save') }}
+      </button>
+    </form>
+
     <div v-if="dialogue.summary" class="dialogue-block">
       <h2>{{ t('dialogues.summary') }}</h2>
       <p>{{ dialogue.summary }}</p>
@@ -142,6 +162,11 @@
   </div>
 
   <div v-else-if="loading" class="text-muted">{{ t('common.loading') }}</div>
+  <div v-else class="detail-error card">
+    <h1>{{ detailErrorTitle }}</h1>
+    <p>{{ detailErrorText }}</p>
+    <RouterLink class="btn btn-primary" to="/sections">{{ t('sections.title') }}</RouterLink>
+  </div>
 </template>
 
 <script setup>
@@ -157,6 +182,7 @@ const route = useRoute()
 const auth = useAuthStore()
 const dialogue = ref(null)
 const loading = ref(true)
+const detailErrorStatus = ref(null)
 const commentText = ref('')
 const commentNotice = ref('')
 const commentError = ref('')
@@ -166,6 +192,11 @@ const replyText = ref('')
 const editingCommentId = ref(null)
 const editCommentText = ref('')
 const withdrawing = ref(false)
+const savingStatus = ref(false)
+const statusDraft = ref('')
+const moderationNoteDraft = ref('')
+
+const moderationStatuses = ['submitted', 'changes_requested', 'rejected', 'published', 'archived']
 
 const isPublished = computed(() => dialogue.value?.status === 'published')
 const canEdit = computed(() => {
@@ -208,11 +239,33 @@ const threadedComments = computed(() => {
 onMounted(async () => {
   try {
     const { data } = await api.get(`/dialogues/${route.params.id}/`)
-    dialogue.value = data
+    setDialogue(data)
+  } catch (err) {
+    detailErrorStatus.value = err.response?.status || 0
   } finally {
     loading.value = false
   }
 })
+
+const detailErrorTitle = computed(() => {
+  if (detailErrorStatus.value === 403 || detailErrorStatus.value === 404) {
+    return t('dialogue.notAvailableTitle')
+  }
+  return t('common.error')
+})
+
+const detailErrorText = computed(() => {
+  if (detailErrorStatus.value === 403 || detailErrorStatus.value === 404) {
+    return t('dialogue.notAvailableText')
+  }
+  return t('dialogue.loadErrorText')
+})
+
+function setDialogue(data) {
+  dialogue.value = data
+  statusDraft.value = data.status || 'submitted'
+  moderationNoteDraft.value = data.moderation_note || ''
+}
 
 function formatDate(iso) {
   return new Date(iso).toLocaleDateString()
@@ -243,7 +296,7 @@ async function submitComment(parentId = null) {
     }
     commentNotice.value = t('dialogues.commentPendingNotice')
     const { data } = await api.get(`/dialogues/${route.params.id}/`)
-    dialogue.value = data
+    setDialogue(data)
   } catch {
     commentError.value = t('dialogues.commentSubmitError')
   } finally {
@@ -302,9 +355,27 @@ async function withdrawFromReview() {
   withdrawing.value = true
   try {
     const { data } = await api.post(`/dialogues/${route.params.id}/withdraw/`)
-    dialogue.value = data
+    setDialogue(data)
   } finally {
     withdrawing.value = false
+  }
+}
+
+async function updateDialogueStatus() {
+  savingStatus.value = true
+  try {
+    const { data } = await api.post(`/dialogues/${route.params.id}/moderate/`, {
+      status: statusDraft.value,
+      moderation_note: moderationNoteDraft.value,
+    })
+    setDialogue({
+      ...dialogue.value,
+      status: data.status,
+      moderation_note: data.moderation_note,
+      published: data.status === 'published',
+    })
+  } finally {
+    savingStatus.value = false
   }
 }
 </script>
@@ -316,6 +387,24 @@ async function withdrawFromReview() {
   font-size: 0.875rem;
   display: inline-block;
   margin-bottom: 1rem;
+}
+
+.detail-error {
+  margin: 3rem auto;
+  max-width: 560px;
+  padding: 2rem;
+}
+
+.detail-error h1 {
+  font-family: var(--font-serif);
+  font-size: 1.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.detail-error p {
+  color: var(--color-text-muted);
+  line-height: 1.6;
+  margin-bottom: 1.25rem;
 }
 
 .dialogue-header {
@@ -369,6 +458,39 @@ async function withdrawFromReview() {
   display: flex;
   gap: 0.75rem;
   margin-top: 1rem;
+}
+
+.staff-status-panel {
+  align-items: flex-end;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin: 1.5rem 0;
+}
+
+.staff-status-main {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+
+.staff-status-panel label {
+  color: var(--color-text-muted);
+  display: flex;
+  flex-direction: column;
+  font-size: 0.78rem;
+  font-weight: 600;
+  gap: 0.35rem;
+}
+
+.staff-status-panel select,
+.staff-status-panel textarea {
+  color: var(--color-text);
+  font: inherit;
+}
+
+.staff-status-panel textarea {
+  resize: vertical;
 }
 
 .moderation-message {
