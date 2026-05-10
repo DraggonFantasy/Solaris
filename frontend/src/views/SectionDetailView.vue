@@ -1,8 +1,18 @@
 <template>
   <div v-if="section">
     <RouterLink to="/sections" class="back-link">← {{ t('common.back') }}</RouterLink>
-    <h1 class="page-title">{{ section.name }}</h1>
-    <p v-if="section.brief" class="section-brief">{{ section.brief }}</p>
+    <div class="section-header">
+      <div>
+        <h1 class="page-title">{{ section.name }}</h1>
+        <p v-if="section.brief" class="section-brief">{{ section.brief }}</p>
+      </div>
+      <RouterLink
+        class="btn btn-primary"
+        :to="{ name: 'create-dialogue', query: { section: section.slug } }"
+      >
+        + {{ t('dialogue.createInSection') }}
+      </RouterLink>
+    </div>
 
     <div v-if="loading" class="text-muted">{{ t('common.loading') }}</div>
     <div v-else-if="dialogues.length === 0" class="text-muted">{{ t('dialogues.noDialogues') }}</div>
@@ -64,9 +74,20 @@ onMounted(async () => {
 
 .back-link:hover { color: var(--color-primary); }
 
+.section-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 1.5rem;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+}
+
+.section-header .page-title {
+  margin-bottom: 0.75rem;
+}
+
 .section-brief {
   color: var(--color-text-muted);
-  margin-bottom: 2rem;
   line-height: 1.7;
   max-width: 760px;
 }
@@ -114,5 +135,11 @@ onMounted(async () => {
   color: var(--color-text-muted);
   text-align: right;
   white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .section-header {
+    flex-direction: column;
+  }
 }
 </style>

@@ -88,7 +88,7 @@
           </div>
           <div class="import-menu-wrap">
             <button type="button" class="btn btn-outline" @click="showImportMenu = !showImportMenu">
-              {{ t('dialogue.importFrom') }}
+              {{ importingShare ? t('common.loading') : t('dialogue.importFrom') }}
             </button>
             <div v-if="showImportMenu" class="import-menu">
               <button
@@ -256,6 +256,7 @@ const error = ref('')
 const textStepError = ref('')
 const showAuthorModal = ref(false)
 const showImportMenu = ref(false)
+const importingShare = ref(false)
 const sections = ref([])
 const authors = ref([])
 const speakerDraft = ref('')
@@ -344,10 +345,22 @@ onMounted(async () => {
   if (isEditing.value) {
     await loadDialogue()
   } else {
+    applySectionFromQuery()
     initDefaultAuthor()
     restoreAuthorPresets()
   }
 })
+
+function applySectionFromQuery() {
+  const sectionParam = route.query.section
+  if (!sectionParam) return
+  const selected = sections.value.find((section) => {
+    return String(section.id) === String(sectionParam) || section.slug === sectionParam
+  })
+  if (selected) {
+    form.value.section = selected.id
+  }
+}
 
 function nextStep() {
   if (currentStep.value === 1 && !validateTextStep()) return
@@ -507,9 +520,36 @@ function insertSpeakerTurn(speaker) {
   form.value.text = `${val}${suffix}## ${speaker}\n\n`
 }
 
-function handleImport(source) {
+async function handleImport(source) {
   showImportMenu.value = false
-  window.alert(t('dialogue.importStub', { source }))
+  const url = window.prompt(t('dialogue.importUrlPrompt', { source }))
+  if (!url) return
+  textStepError.value = ''
+  importingShare.value = true
+  try {
+    const { data } = await api.post('/dialogues/import-share/', { url })
+    const suffix = form.value.text && !form.value.text.endsWith('\n\n')
+      ? (form.value.text.endsWith('\n') ? '\n' : '\n\n')
+      : ''
+    form.value.text = `${form.value.text}${suffix}${data.markdown}`
+    if (!form.value.title.trim() && data.title) {
+      form.value.title = data.title
+    }
+    const serviceAuthor = importSources.find((item) => item.name.toLowerCase() === data.service)
+    if (serviceAuthor && !authors.value.some((author) => author.kind === 'ai_model' && author.name === serviceAuthor.name)) {
+      authors.value.push({
+        localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+        kind: 'ai_model',
+        name: serviceAuthor.name,
+        version: '',
+        description: '',
+      })
+    }
+  } catch (err) {
+    textStepError.value = err.response?.data?.detail || t('dialogue.importError')
+  } finally {
+    importingShare.value = false
+  }
 }
 </script>
 

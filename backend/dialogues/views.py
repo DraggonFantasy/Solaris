@@ -1,4 +1,6 @@
 from django.db import models
+import re
+from urllib.parse import urlparse
 from rest_framework import generics, permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -201,6 +203,80 @@ class DialogueWithdrawView(APIView):
             details='Withdrawn from review'
         )
         return Response(DialogueDetailSerializer(dialogue, context={'request': request}).data)
+
+
+class DialogueImportShareView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    allowed_hosts = {
+        'chatgpt.com',
+        'claude.ai',
+        'gemini.google.com',
+    }
+
+    def post(self, request):
+        url = (request.data.get('url') or '').strip()
+        if not url:
+            return Response({'detail': 'Share URL is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        parsed = urlparse(url)
+        if parsed.scheme not in {'http', 'https'} or parsed.netloc not in self.allowed_hosts:
+            return Response({'detail': 'Unsupported share URL.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            from llm_shared_chat import extract_share
+        except ImportError:
+            return Response(
+                {'detail': 'Shared chat extractor is not installed.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        try:
+            conversation = extract_share(url)
+        except Exception as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        messages = conversation.get('messages') or []
+        markdown = self.to_markdown(messages, conversation.get('service'))
+        if not markdown.strip():
+            return Response({'detail': 'No visible messages found.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            'service': conversation.get('service') or '',
+            'title': conversation.get('title') or '',
+            'markdown': markdown,
+            'message_count': len(messages),
+        })
+
+    def to_markdown(self, messages, service):
+        service_name = {
+            'chatgpt': 'ChatGPT',
+            'claude': 'Claude',
+            'gemini': 'Gemini',
+        }.get(service, 'ШІ')
+        speaker_names = {
+            'user': 'Користувач',
+            'assistant': service_name,
+            'model': service_name,
+        }
+        parts = []
+        for message in messages:
+            content = (message.get('content') or '').strip()
+            if not content:
+                continue
+            content = self.demote_markdown_headings(content)
+            role = (message.get('role') or '').lower()
+            speaker = speaker_names.get(role, role.title() or service_name)
+            parts.append(f'## {speaker}\n\n{content}')
+        return '\n\n'.join(parts)
+
+    def demote_markdown_headings(self, content):
+        return re.sub(
+            r'^(#{1,6})(\s+)',
+            lambda match: f'{"#" * min(len(match.group(1)) + 1, 6)}{match.group(2)}',
+            content,
+            flags=re.MULTILINE,
+        )
 
 
 class CommentCreateView(generics.CreateAPIView):

@@ -5,6 +5,7 @@ backend/staticfiles/
 backend/__pycache__/
 backend/**/__pycache__/
 backend/.venv/
+backend/.venv.py38-backup/
 *.pyc
 .env
 .codex

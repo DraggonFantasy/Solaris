@@ -110,9 +110,21 @@ CORS_ALLOWED_ORIGINS = os.getenv(
     'CORS_ALLOWED_ORIGINS',
     'http://localhost:5173 http://localhost:80'
 ).split()
+local_frontend_port = os.getenv('LOCAL_FRONTEND_PORT')
+if local_frontend_port:
+    local_frontend_host = os.getenv('LOCAL_FRONTEND_HOST', '127.0.0.1')
+    local_frontend_origin = f'http://{local_frontend_host}:{local_frontend_port}'
+    localhost_origin = f'http://localhost:{local_frontend_port}'
+    for origin in (local_frontend_origin, localhost_origin):
+        if origin not in CORS_ALLOWED_ORIGINS:
+            CORS_ALLOWED_ORIGINS.append(origin)
 CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', '').split()
+if local_frontend_port:
+    for origin in (local_frontend_origin, localhost_origin):
+        if origin not in CSRF_TRUSTED_ORIGINS:
+            CSRF_TRUSTED_ORIGINS.append(origin)
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 AUTH_USER_MODEL = 'accounts.User'

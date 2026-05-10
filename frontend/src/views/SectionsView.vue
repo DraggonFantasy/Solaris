@@ -5,19 +5,26 @@
     <div v-if="loading" class="text-muted">{{ t('common.loading') }}</div>
 
     <div v-else class="sections-grid">
-      <RouterLink
+      <article
         v-for="section in sections"
         :key="section.id"
-        :to="`/sections/${section.slug}`"
         class="section-card card"
       >
-        <h2 class="section-name">{{ section.name }}</h2>
+        <RouterLink :to="`/sections/${section.slug}`" class="section-main-link">
+          <h2 class="section-name">{{ section.name }}</h2>
+        </RouterLink>
         <p v-if="section.brief" class="section-brief">{{ section.brief }}</p>
         <div class="section-footer">
           <span class="dialogue-count">{{ section.dialogue_count }} {{ t('sections.dialogues') }}</span>
-          <span class="view-link">{{ t('sections.viewSection') }} →</span>
+          <RouterLink :to="`/sections/${section.slug}`" class="view-link">{{ t('sections.viewSection') }} →</RouterLink>
         </div>
-      </RouterLink>
+        <RouterLink
+          class="btn btn-outline btn-sm add-dialogue-link"
+          :to="{ name: 'create-dialogue', query: { section: section.slug } }"
+        >
+          + {{ t('dialogue.createInSection') }}
+        </RouterLink>
+      </article>
     </div>
   </div>
 </template>
@@ -49,7 +56,6 @@ onMounted(async () => {
 }
 
 .section-card {
-  text-decoration: none;
   color: inherit;
   display: flex;
   flex-direction: column;
@@ -60,6 +66,11 @@ onMounted(async () => {
 .section-card:hover {
   box-shadow: var(--shadow-md);
   transform: translateY(-2px);
+}
+
+.section-main-link {
+  color: inherit;
+  text-decoration: none;
 }
 
 .section-name {
@@ -90,5 +101,15 @@ onMounted(async () => {
 .view-link {
   color: var(--color-primary);
   font-weight: 500;
+  text-decoration: none;
+}
+
+.view-link:hover {
+  text-decoration: underline;
+}
+
+.add-dialogue-link {
+  align-self: flex-start;
+  margin-top: 0.25rem;
 }
 </style>
