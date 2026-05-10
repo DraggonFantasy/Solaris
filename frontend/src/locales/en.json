@@ -111,6 +111,9 @@
     "edit": "Edit",
     "withdrawReview": "Withdraw from review",
     "moderationMessage": "Moderator message",
+    "notAvailableTitle": "Dialogue is not available",
+    "notAvailableText": "This dialogue is not published or you do not have access to it.",
+    "loadErrorText": "Could not load this dialogue. Try refreshing the page.",
     "submitReview": "Submit for Review",
     "submittedTitle": "Dialogue submitted!",
     "submittedText": "Your dialogue has been submitted for moderator review. It will be published once approved.",
@@ -136,6 +139,7 @@
     "requestChanges": "Request changes",
     "reject": "Reject",
     "archive": "Archive",
+    "statusLabel": "Status",
     "notePlaceholder": "Optional note for the author"
   },
   "commentModeration": {

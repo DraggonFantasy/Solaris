@@ -191,6 +191,13 @@ class DialogueWriteSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         if attrs.get('published') and not attrs.get('status'):
             attrs['status'] = Dialogue.STATUS_SUBMITTED
+        request = self.context.get('request')
+        if (
+            request
+            and request.user.is_staff
+            and attrs.get('status') == Dialogue.STATUS_SUBMITTED
+        ):
+            attrs['status'] = Dialogue.STATUS_PUBLISHED
         authors = attrs.get('authors')
         if authors is not None and not isinstance(authors, list):
             raise serializers.ValidationError({'authors': 'Authors must be a list.'})

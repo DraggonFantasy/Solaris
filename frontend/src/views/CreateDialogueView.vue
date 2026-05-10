@@ -384,7 +384,9 @@ async function submit(submitForReview) {
     const { data } = isEditing.value
       ? await api.put(`/dialogues/${route.params.id}/`, payload)
       : await api.post('/dialogues/', payload)
-    if (submitForReview) {
+    if (submitForReview && data.status === 'published') {
+      router.push({ name: 'dialogue-detail', params: { id: data.id } })
+    } else if (submitForReview) {
       router.push({ name: 'dialogue-submitted', params: { id: data.id } })
     } else {
       router.push({ name: 'my-dialogues' })
