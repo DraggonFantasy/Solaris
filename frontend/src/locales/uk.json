@@ -46,7 +46,7 @@
     "comments": "коментарів",
     "summary": "Зміст",
     "foodForThought": "До роздумів",
-    "literature": "Рекомендована literatura",
+    "literature": "Рекомендована література",
     "illustrations": "Ілюстрації",
     "addComment": "Додати коментар",
     "submitComment": "Надіслати",
@@ -107,6 +107,10 @@
     "literaturePlaceholder": "Книги, статті, посилання...",
     "reviewNote": "Повідомлення модератору",
     "reviewNotePlaceholder": "Необов'язковий контекст для модератора перед перевіркою...",
+    "illustrationsMenu": "Меню ілюстрацій",
+    "addIllustration": "Додати ілюстрацію",
+    "removeIllustration": "Видалити",
+    "illustrationCaptionPlaceholder": "Опис або пояснення ілюстрації...",
     "next": "Далі",
     "saveDraft": "Зберегти чернетку",
     "saveChanges": "Зберегти зміни",
@@ -161,6 +165,7 @@
     "error": "Помилка",
     "save": "Зберегти",
     "cancel": "Скасувати",
+    "close": "Закрити",
     "back": "Назад"
   }
 }

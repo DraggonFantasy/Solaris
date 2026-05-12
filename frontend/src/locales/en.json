@@ -107,6 +107,10 @@
     "literaturePlaceholder": "Books, articles, links...",
     "reviewNote": "Message to moderator",
     "reviewNotePlaceholder": "Optional context for the moderator before review...",
+    "illustrationsMenu": "Illustrations menu",
+    "addIllustration": "Add illustration",
+    "removeIllustration": "Remove",
+    "illustrationCaptionPlaceholder": "Description or explanation of the illustration...",
     "next": "Next",
     "saveDraft": "Save Draft",
     "saveChanges": "Save changes",
@@ -161,6 +165,7 @@
     "error": "Error",
     "save": "Save",
     "cancel": "Cancel",
+    "close": "Close",
     "back": "Back"
   }
 }

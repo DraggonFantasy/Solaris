@@ -1,15 +1,15 @@
 from django.db import models
 import re
 from urllib.parse import urlparse
-from rest_framework import generics, permissions, serializers, status
+from rest_framework import generics, parsers, permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .models import Section, Interlocutor, Dialogue, Comment, Like, DialogueOrder, AuditLog
+from .models import Section, Interlocutor, Dialogue, DialogueIllustration, Comment, Like, DialogueOrder, AuditLog
 from .serializers import (
     SectionSerializer, InterlocutorSerializer,
     DialogueListSerializer, DialogueDetailSerializer, DialogueWriteSerializer,
     DialogueModerationSerializer, CommentSerializer, CommentEditSerializer,
-    CommentReviewSerializer, DialogueOrderSerializer
+    CommentReviewSerializer, DialogueIllustrationSerializer, DialogueOrderSerializer
 )
 
 
@@ -31,6 +31,15 @@ class IsAuthorEditableOrStaff(permissions.BasePermission):
         if request.user.is_staff:
             return True
         return obj.human_author == request.user and obj.status in self.editable_statuses
+
+
+def can_edit_dialogue(user, dialogue):
+    if user.is_staff:
+        return True
+    return (
+        dialogue.human_author == user
+        and dialogue.status in IsAuthorEditableOrStaff.editable_statuses
+    )
 
 
 class SectionListView(generics.ListCreateAPIView):
@@ -276,6 +285,58 @@ class DialogueImportShareView(APIView):
             lambda match: f'{"#" * min(len(match.group(1)) + 1, 6)}{match.group(2)}',
             content,
             flags=re.MULTILINE,
+        )
+
+
+class DialogueIllustrationCreateView(generics.CreateAPIView):
+    serializer_class = DialogueIllustrationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [parsers.MultiPartParser, parsers.FormParser]
+
+    def perform_create(self, serializer):
+        dialogue = generics.get_object_or_404(Dialogue, pk=self.kwargs['dialogue_id'])
+        if not can_edit_dialogue(self.request.user, dialogue):
+            raise permissions.PermissionDenied('You cannot edit illustrations for this dialogue.')
+        illustration = serializer.save(dialogue=dialogue)
+        AuditLog.objects.create(
+            user=self.request.user,
+            action='create_illustration',
+            object_type='DialogueIllustration',
+            object_id=str(illustration.id),
+        )
+
+
+class DialogueIllustrationDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = DialogueIllustrationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [parsers.MultiPartParser, parsers.FormParser]
+    http_method_names = ['patch', 'delete', 'options']
+
+    def get_queryset(self):
+        return DialogueIllustration.objects.select_related('dialogue', 'dialogue__human_author')
+
+    def check_object_permissions(self, request, obj):
+        super().check_object_permissions(request, obj)
+        if not can_edit_dialogue(request.user, obj.dialogue):
+            raise permissions.PermissionDenied('You cannot edit this illustration.')
+
+    def perform_update(self, serializer):
+        illustration = serializer.save()
+        AuditLog.objects.create(
+            user=self.request.user,
+            action='update_illustration',
+            object_type='DialogueIllustration',
+            object_id=str(illustration.id),
+        )
+
+    def perform_destroy(self, instance):
+        illustration_id = instance.id
+        instance.delete()
+        AuditLog.objects.create(
+            user=self.request.user,
+            action='delete_illustration',
+            object_type='DialogueIllustration',
+            object_id=str(illustration_id),
         )
 
 

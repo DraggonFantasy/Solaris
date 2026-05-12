@@ -40,6 +40,15 @@ const rendered = computed(() => marked.parse(props.content || ''))
   margin-bottom: 0.875rem;
 }
 
+.markdown-body :deep(h2 ~ p),
+.markdown-body :deep(h2 ~ ul),
+.markdown-body :deep(h2 ~ ol),
+.markdown-body :deep(h2 ~ blockquote),
+.markdown-body :deep(h2 ~ pre),
+.markdown-body :deep(h2 ~ h3) {
+  margin-left: 1rem;
+}
+
 .markdown-body :deep(strong) {
   font-weight: 700;
 }
@@ -85,5 +94,16 @@ const rendered = computed(() => marked.parse(props.content || ''))
 
 .markdown-body :deep(li) {
   margin-bottom: 0.25rem;
+}
+
+@media (max-width: 640px) {
+  .markdown-body :deep(h2 ~ p),
+  .markdown-body :deep(h2 ~ ul),
+  .markdown-body :deep(h2 ~ ol),
+  .markdown-body :deep(h2 ~ blockquote),
+  .markdown-body :deep(h2 ~ pre),
+  .markdown-body :deep(h2 ~ h3) {
+    margin-left: 0.625rem;
+  }
 }
 </style>
