@@ -57,6 +57,29 @@
       <p>{{ dialogue.summary }}</p>
     </div>
 
+    <div v-if="dialogue.illustrations?.length" class="dialogue-block">
+      <h2>{{ t('dialogues.illustrations') }}</h2>
+      <div class="illustrations-menu">
+        <nav class="illustration-tabs" :aria-label="t('dialogues.illustrations')">
+          <button
+            v-for="(ill, index) in dialogue.illustrations"
+            :key="ill.id"
+            type="button"
+            :class="{ active: selectedIllustration?.id === ill.id }"
+            @click="activeIllustrationId = ill.id"
+          >
+            {{ illustrationMenuLabel(ill, index) }}
+          </button>
+        </nav>
+        <figure v-if="selectedIllustration" class="illustration-detail">
+          <button type="button" class="illustration-preview" @click="openIllustrationModal(selectedIllustration)">
+            <img :src="selectedIllustration.image" :alt="selectedIllustration.caption" />
+          </button>
+          <figcaption v-if="selectedIllustration.caption">{{ selectedIllustration.caption }}</figcaption>
+        </figure>
+      </div>
+    </div>
+
     <div class="dialogue-text card">
       <MarkdownRenderer :content="dialogue.text" />
     </div>
@@ -69,16 +92,6 @@
     <div v-if="dialogue.recommended_literature" class="dialogue-block">
       <h2>{{ t('dialogues.literature') }}</h2>
       <p>{{ dialogue.recommended_literature }}</p>
-    </div>
-
-    <div v-if="dialogue.illustrations?.length" class="dialogue-block">
-      <h2>{{ t('dialogues.illustrations') }}</h2>
-      <div class="illustrations">
-        <figure v-for="ill in dialogue.illustrations" :key="ill.id">
-          <img :src="ill.image" :alt="ill.caption" />
-          <figcaption>{{ ill.caption }}</figcaption>
-        </figure>
-      </div>
     </div>
 
     <!-- Like button -->
@@ -159,6 +172,16 @@
         </button>
       </form>
     </section>
+
+    <div v-if="modalIllustration" class="illustration-modal" role="dialog" aria-modal="true" @click.self="closeIllustrationModal">
+      <div class="illustration-modal-content">
+        <button type="button" class="illustration-modal-close" :aria-label="t('common.close')" @click="closeIllustrationModal">
+          ×
+        </button>
+        <img :src="modalIllustration.image" :alt="modalIllustration.caption" />
+        <p v-if="modalIllustration.caption">{{ modalIllustration.caption }}</p>
+      </div>
+    </div>
   </div>
 
   <div v-else-if="loading" class="text-muted">{{ t('common.loading') }}</div>
@@ -195,6 +218,8 @@ const withdrawing = ref(false)
 const savingStatus = ref(false)
 const statusDraft = ref('')
 const moderationNoteDraft = ref('')
+const activeIllustrationId = ref(null)
+const modalIllustration = ref(null)
 
 const moderationStatuses = ['submitted', 'changes_requested', 'rejected', 'published', 'archived']
 
@@ -210,6 +235,11 @@ const backTarget = computed(() => {
   if (!dialogue.value) return { name: 'sections' }
   if (dialogue.value.status !== 'published') return { name: 'my-dialogues' }
   return `/sections/${dialogue.value.section_slug}`
+})
+const selectedIllustration = computed(() => {
+  const illustrations = dialogue.value?.illustrations || []
+  if (!illustrations.length) return null
+  return illustrations.find((illustration) => illustration.id === activeIllustrationId.value) || illustrations[0]
 })
 const threadedComments = computed(() => {
   const comments = dialogue.value?.comments || []
@@ -265,10 +295,27 @@ function setDialogue(data) {
   dialogue.value = data
   statusDraft.value = data.status || 'submitted'
   moderationNoteDraft.value = data.moderation_note || ''
+  activeIllustrationId.value = data.illustrations?.[0]?.id || null
+  modalIllustration.value = null
 }
 
 function formatDate(iso) {
   return new Date(iso).toLocaleDateString()
+}
+
+function openIllustrationModal(illustration) {
+  modalIllustration.value = illustration
+}
+
+function closeIllustrationModal() {
+  modalIllustration.value = null
+}
+
+function illustrationMenuLabel(illustration, index) {
+  const fallback = `${t('dialogues.illustrations')} ${index + 1}`
+  const caption = (illustration.caption || '').trim()
+  if (!caption) return fallback
+  return caption.length > 64 ? `${caption.slice(0, 61).trim()}...` : caption
 }
 
 async function toggleLike() {
@@ -533,25 +580,122 @@ async function updateDialogueStatus() {
   margin: 1.5rem 0;
 }
 
-.illustrations {
-  display: flex;
-  flex-wrap: wrap;
+.illustrations-menu {
+  display: grid;
   gap: 1rem;
+  grid-template-columns: 240px minmax(0, 420px);
+  align-items: start;
 }
 
-.illustrations figure {
-  max-width: 400px;
+.illustration-tabs {
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-right: 0.75rem;
 }
 
-.illustrations img {
+.illustration-tabs button {
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font: inherit;
+  padding: 0.55rem 0.65rem;
+  text-align: left;
+}
+
+.illustration-tabs button:hover,
+.illustration-tabs button.active {
+  background: var(--color-bg);
+  color: var(--color-primary);
+}
+
+.illustration-detail {
+  margin: 0;
+}
+
+.illustration-preview {
+  align-items: center;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  cursor: zoom-in;
+  display: flex;
+  height: 220px;
+  justify-content: center;
+  padding: 0;
   width: 100%;
+}
+
+.illustration-preview img {
+  display: block;
+  max-height: 100%;
+  max-width: 100%;
+  object-fit: contain;
   border-radius: var(--radius);
 }
 
-.illustrations figcaption {
-  font-size: 0.8125rem;
+.illustration-detail figcaption {
+  font-size: 0.9rem;
   color: var(--color-text-muted);
-  margin-top: 0.5rem;
+  line-height: 1.6;
+  margin-top: 0.75rem;
+  white-space: pre-wrap;
+}
+
+.illustration-modal {
+  align-items: center;
+  background: rgba(17, 24, 39, 0.72);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 1.5rem;
+  position: fixed;
+  z-index: 50;
+}
+
+.illustration-modal-content {
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 80px rgba(17, 24, 39, 0.35);
+  max-height: calc(100vh - 3rem);
+  max-width: min(920px, calc(100vw - 3rem));
+  overflow: auto;
+  padding: 1rem;
+  position: relative;
+}
+
+.illustration-modal-close {
+  align-items: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  cursor: pointer;
+  display: flex;
+  font-size: 1.25rem;
+  height: 2rem;
+  justify-content: center;
+  line-height: 1;
+  position: absolute;
+  right: 0.75rem;
+  top: 0.75rem;
+  width: 2rem;
+}
+
+.illustration-modal-content img {
+  display: block;
+  max-height: calc(100vh - 8rem);
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.illustration-modal-content p {
+  color: var(--color-text-muted);
+  line-height: 1.6;
+  margin: 0.75rem 2.5rem 0 0;
+  white-space: pre-wrap;
 }
 
 .comments-section {
@@ -642,5 +786,21 @@ async function updateDialogueStatus() {
   font-family: var(--font-sans);
   font-size: 0.9375rem;
   resize: vertical;
+}
+
+@media (max-width: 760px) {
+  .illustrations-menu {
+    grid-template-columns: 1fr;
+  }
+
+  .illustration-tabs {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+    padding: 0 0 0.75rem;
+  }
+
+  .illustration-preview {
+    height: 180px;
+  }
 }
 </style>

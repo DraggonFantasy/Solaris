@@ -2,6 +2,7 @@
   <div class="home">
     <section class="hero">
       <div class="hero-content">
+        <img class="hero-logo" src="/logo.png" alt="Солярис" />
         <h1 class="hero-title">СОЛЯРИС</h1>
         <p class="hero-tagline">{{ t('home.tagline') }}</p>
         <p class="hero-brief">{{ t('home.brief') }}</p>
@@ -66,6 +67,13 @@ onMounted(async () => {
   color: var(--color-primary);
   letter-spacing: 0.15em;
   margin-bottom: 1rem;
+}
+
+.hero-logo {
+  display: block;
+  height: auto;
+  margin: 0 auto 1.5rem;
+  max-width: min(360px, 72vw);
 }
 
 .hero-tagline {

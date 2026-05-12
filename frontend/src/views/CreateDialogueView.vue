@@ -160,6 +160,44 @@
           <textarea v-model="form.review_note" rows="3" :placeholder="t('dialogue.reviewNotePlaceholder')" />
         </div>
 
+        <div class="form-group">
+          <label>{{ t('dialogue.illustrationsMenu') }}</label>
+          <div class="illustration-editor">
+            <div v-if="existingIllustrations.length" class="illustration-list">
+              <div v-for="illustration in existingIllustrations" :key="illustration.id" class="illustration-edit-row">
+                <img :src="illustration.image" :alt="illustration.caption" />
+                <textarea
+                  v-model="illustration.caption"
+                  rows="3"
+                  :placeholder="t('dialogue.illustrationCaptionPlaceholder')"
+                />
+                <button type="button" class="btn btn-outline btn-sm" @click="removeExistingIllustration(illustration.id)">
+                  {{ t('dialogue.removeIllustration') }}
+                </button>
+              </div>
+            </div>
+
+            <div v-if="newIllustrations.length" class="illustration-list">
+              <div v-for="(illustration, index) in newIllustrations" :key="illustration.localId" class="illustration-edit-row">
+                <div class="illustration-file-name">{{ illustration.file.name }}</div>
+                <textarea
+                  v-model="illustration.caption"
+                  rows="3"
+                  :placeholder="t('dialogue.illustrationCaptionPlaceholder')"
+                />
+                <button type="button" class="btn btn-outline btn-sm" @click="removeNewIllustration(index)">
+                  {{ t('dialogue.removeIllustration') }}
+                </button>
+              </div>
+            </div>
+
+            <label class="illustration-upload">
+              <input type="file" accept="image/*" multiple @change="addIllustrationFiles" />
+              <span class="btn btn-outline btn-sm">+ {{ t('dialogue.addIllustration') }}</span>
+            </label>
+          </div>
+        </div>
+
         <div v-if="error" class="alert alert-error">{{ error }}</div>
       </div>
 
@@ -259,6 +297,9 @@ const showImportMenu = ref(false)
 const importingShare = ref(false)
 const sections = ref([])
 const authors = ref([])
+const existingIllustrations = ref([])
+const removedIllustrationIds = ref([])
+const newIllustrations = ref([])
 const speakerDraft = ref('')
 const originalStatus = ref('draft')
 
@@ -391,12 +432,18 @@ async function submit(submitForReview) {
       authors: authors.value.map(({ localId, ...author }) => author),
       llm_name: firstAiAuthor?.name || '',
       llm_version: firstAiAuthor?.version || '',
-      status: submitForReview ? 'submitted' : (isEditing.value ? originalStatus.value : 'draft'),
+      status: isEditing.value ? originalStatus.value : 'draft',
       published: false
     }
-    const { data } = isEditing.value
+    let { data } = isEditing.value
       ? await api.put(`/dialogues/${route.params.id}/`, payload)
       : await api.post('/dialogues/', payload)
+    await syncIllustrations(data.id)
+    if (submitForReview) {
+      const submitPayload = { ...payload, status: 'submitted' }
+      const response = await api.put(`/dialogues/${data.id}/`, submitPayload)
+      data = response.data
+    }
     if (submitForReview && data.status === 'published') {
       router.push({ name: 'dialogue-detail', params: { id: data.id } })
     } else if (submitForReview) {
@@ -432,6 +479,13 @@ async function loadDialogue() {
     ...author,
     localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
   }))
+  existingIllustrations.value = (data.illustrations || []).map((illustration) => ({
+    ...illustration,
+    originalCaption: illustration.caption || '',
+    originalOrder: illustration.order || 0,
+  }))
+  removedIllustrationIds.value = []
+  newIllustrations.value = []
   if (!authors.value.length) {
     initDefaultAuthor()
   }
@@ -518,6 +572,51 @@ function insertSpeakerTurn(speaker) {
   const val = form.value.text
   const suffix = val && !val.endsWith('\n\n') ? (val.endsWith('\n') ? '\n' : '\n\n') : ''
   form.value.text = `${val}${suffix}## ${speaker}\n\n`
+}
+
+function addIllustrationFiles(event) {
+  Array.from(event.target.files || []).forEach((file) => {
+    newIllustrations.value.push({
+      localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+      file,
+      caption: '',
+    })
+  })
+  event.target.value = ''
+}
+
+function removeNewIllustration(index) {
+  newIllustrations.value.splice(index, 1)
+}
+
+function removeExistingIllustration(id) {
+  existingIllustrations.value = existingIllustrations.value.filter((illustration) => illustration.id !== id)
+  if (!removedIllustrationIds.value.includes(id)) {
+    removedIllustrationIds.value.push(id)
+  }
+}
+
+async function syncIllustrations(dialogueId) {
+  await Promise.all(removedIllustrationIds.value.map((id) => api.delete(`/illustrations/${id}/`)))
+  await Promise.all(existingIllustrations.value.map((illustration, index) => {
+    if (
+      illustration.caption === illustration.originalCaption
+      && index === illustration.originalOrder
+    ) {
+      return Promise.resolve()
+    }
+    const data = new FormData()
+    data.append('caption', illustration.caption || '')
+    data.append('order', index)
+    return api.patch(`/illustrations/${illustration.id}/`, data)
+  }))
+  await Promise.all(newIllustrations.value.map((illustration, index) => {
+    const data = new FormData()
+    data.append('image', illustration.file)
+    data.append('caption', illustration.caption || '')
+    data.append('order', existingIllustrations.value.length + index)
+    return api.post(`/dialogues/${dialogueId}/illustrations/`, data)
+  }))
 }
 
 async function handleImport(source) {
@@ -853,6 +952,55 @@ async function handleImport(source) {
   background: var(--color-bg);
 }
 
+.illustration-editor,
+.illustration-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.illustration-edit-row {
+  align-items: flex-start;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: 140px minmax(0, 1fr) auto;
+  padding: 0.75rem;
+}
+
+.illustration-edit-row img {
+  border-radius: var(--radius);
+  height: 88px;
+  object-fit: cover;
+  width: 140px;
+}
+
+.illustration-file-name {
+  align-items: center;
+  background: var(--color-bg);
+  border-radius: var(--radius);
+  color: var(--color-text-muted);
+  display: flex;
+  font-size: 0.82rem;
+  min-height: 88px;
+  overflow-wrap: anywhere;
+  padding: 0.75rem;
+}
+
+.illustration-edit-row textarea {
+  resize: vertical;
+}
+
+.illustration-upload {
+  align-self: flex-start;
+  cursor: pointer;
+}
+
+.illustration-upload input {
+  display: none;
+}
+
 .modal-backdrop {
   align-items: center;
   background: rgba(15, 23, 42, 0.45);
@@ -928,6 +1076,15 @@ async function handleImport(source) {
 
   .nav-right {
     justify-content: flex-end;
+  }
+
+  .illustration-edit-row {
+    grid-template-columns: 1fr;
+  }
+
+  .illustration-edit-row img,
+  .illustration-file-name {
+    width: 100%;
   }
 }
 </style>
