@@ -108,7 +108,7 @@
             v-model="form.text"
             :placeholder="dialoguePlaceholder"
           />
-          <aside class="speakers-panel">
+          <aside class="speakers-panel" v-if="false">
             <div class="speakers-panel-header">
               <h3>{{ t('dialogue.speakersTitle') }}</h3>
               <span>{{ dialogueSpeakers.length }}</span>
@@ -414,10 +414,12 @@ function validateTextStep() {
     textStepError.value = t('dialogue.textRequired')
     return false
   }
+  /*
   if (!dialogueSpeakers.value.length) {
     textStepError.value = t('dialogue.speakerHeadingRequired')
     return false
   }
+  */
   return true
 }
 
@@ -805,7 +807,7 @@ async function handleImport(source) {
   align-items: stretch;
   display: grid;
   gap: 1rem;
-  grid-template-columns: minmax(0, 1fr) 240px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .speakers-panel {
