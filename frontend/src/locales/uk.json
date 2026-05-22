@@ -52,7 +52,6 @@
     "viewSection": "Переглянути розділ",
     "addSection": "Додати розділ",
     "adminOnly": "Додавати розділи може лише адміністратор.",
-    "sectionNumber": "Розділ {number}",
     "sectionName": "Назва розділу",
     "sectionSlug": "Slug",
     "sectionBrief": "Короткий опис",

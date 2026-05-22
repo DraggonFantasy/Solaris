@@ -52,7 +52,6 @@
     "viewSection": "View section",
     "addSection": "Add section",
     "adminOnly": "Only an administrator can add sections.",
-    "sectionNumber": "Section {number}",
     "sectionName": "Section name",
     "sectionSlug": "Slug",
     "sectionBrief": "Short description",

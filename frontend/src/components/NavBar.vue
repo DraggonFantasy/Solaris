@@ -1,6 +1,10 @@
 <template>
   <nav class="navbar">
     <div class="navbar-inner">
+      <RouterLink class="navbar-brand" to="/">
+        <span class="brand-text">СОЛЯРИС</span>
+      </RouterLink>
+
       <div class="navbar-links">
         <RouterLink to="/sections">{{ t('nav.sections') }}</RouterLink>
       </div>
@@ -38,6 +42,18 @@ const { t } = useI18n()
   display: flex;
   align-items: center;
   gap: 2rem;
+}
+
+.navbar-brand {
+  text-decoration: none;
+}
+
+.brand-text {
+  color: var(--color-primary);
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
 }
 
 .navbar-links {
