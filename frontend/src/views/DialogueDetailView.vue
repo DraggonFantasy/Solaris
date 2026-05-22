@@ -102,7 +102,7 @@
     </div>
 
     <!-- Comments -->
-    <section v-if="isPublished" class="comments-section">
+    <section v-if="isPublished" id="comments" class="comments-section">
       <h2>{{ t('dialogues.addComment') }}</h2>
       <div class="comments-list">
         <div
