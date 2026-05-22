@@ -8,18 +8,18 @@
       </div>
       <div class="section-actions">
         <RouterLink
-          class="btn btn-primary"
+          class="btn btn-primary section-action-btn"
           :to="{ name: 'create-dialogue', query: { section: section.slug } }"
         >
           + {{ t('dialogue.createInSection') }}
         </RouterLink>
-        <button type="button" class="btn btn-outline" @click="openResources('literature')">
-          {{ t('dialogues.literature') }}
+        <button type="button" class="btn btn-outline section-action-btn" @click="openResources('literature')">
+          {{ t('dialogues.literatureShort') }}
         </button>
-        <button type="button" class="btn btn-outline" @click="openResources('authors')">
+        <button type="button" class="btn btn-outline section-action-btn" @click="openResources('authors')">
           {{ t('dialogue.authors') }}
         </button>
-        <button type="button" class="btn btn-outline" @click="openResources('illustrations')">
+        <button type="button" class="btn btn-outline section-action-btn" @click="openResources('illustrations')">
           {{ t('dialogues.illustrations') }}
         </button>
       </div>
@@ -44,7 +44,7 @@
             {{ t('dialogues.by') }}
           </button>
           <button type="button" class="btn btn-outline btn-sm" @click="openDialogueInfo(d, 'literature')">
-            {{ t('dialogues.literature') }}
+            {{ t('dialogues.literatureShort') }}
           </button>
           <RouterLink class="btn btn-outline btn-sm" :to="`/dialogues/${d.id}#comments`">
             {{ t('dialogues.comments') }}
@@ -234,10 +234,16 @@ function closeDialogueInfo() {
 
 .section-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
   justify-content: flex-end;
-  max-width: 520px;
+}
+
+.section-action-btn {
+  font-size: 0.82rem;
+  padding: 0.4rem 0.7rem;
+  white-space: nowrap;
 }
 
 .dialogue-list {
@@ -257,7 +263,10 @@ function closeDialogueInfo() {
 
 .dialogue-row:hover { box-shadow: var(--shadow-md); }
 
-.dialogue-row-main { flex: 1; }
+.dialogue-row-main {
+  flex: 1;
+  min-width: 0;
+}
 
 .dialogue-title-button {
   color: var(--color-primary);
@@ -285,15 +294,16 @@ function closeDialogueInfo() {
 
 .dialogue-row-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
   justify-content: flex-end;
-  max-width: 460px;
 }
 
 .btn-sm {
-  font-size: 0.78rem;
-  padding: 0.35rem 0.65rem;
+  font-size: 0.76rem;
+  padding: 0.32rem 0.52rem;
+  white-space: nowrap;
 }
 
 .dialogue-info-modal {
@@ -406,6 +416,7 @@ function closeDialogueInfo() {
 
   .section-actions,
   .dialogue-row-actions {
+    flex-wrap: wrap;
     justify-content: flex-start;
   }
 
