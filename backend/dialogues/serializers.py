@@ -93,12 +93,14 @@ class DialogueListSerializer(serializers.ModelSerializer):
     section_slug = serializers.CharField(source='section.slug', read_only=True)
     human_author_username = serializers.CharField(source='human_author.username', read_only=True)
     review_note = serializers.SerializerMethodField()
+    illustrations = DialogueIllustrationSerializer(many=True, read_only=True)
     likes_count = serializers.IntegerField(read_only=True)
     comments_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Dialogue
         fields = ('id', 'title', 'section', 'section_name', 'section_slug', 'summary', 'style',
+                  'recommended_literature', 'illustrations',
                   'human_author_username', 'authors', 'llm_name', 'llm_version',
                   'status', 'review_note', 'moderation_note', 'published', 'created_at',
                   'likes_count', 'comments_count')

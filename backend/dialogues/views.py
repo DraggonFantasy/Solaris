@@ -63,6 +63,73 @@ class SectionDetailView(generics.RetrieveUpdateDestroyAPIView):
         return [permissions.IsAdminUser()]
 
 
+class SectionResourcesView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, slug):
+        section = generics.get_object_or_404(Section, slug=slug)
+        dialogues = (
+            Dialogue.objects
+            .filter(section=section, status=Dialogue.STATUS_PUBLISHED)
+            .select_related('human_author')
+            .prefetch_related('illustrations')
+        )
+        literature = []
+        authors = []
+        illustrations = []
+
+        for dialogue in dialogues:
+            if dialogue.recommended_literature.strip():
+                literature.append({
+                    'dialogue_id': dialogue.id,
+                    'dialogue_title': dialogue.title,
+                    'text': dialogue.recommended_literature,
+                })
+
+            dialogue_authors = dialogue.authors if isinstance(dialogue.authors, list) else []
+            if dialogue_authors:
+                for author in dialogue_authors:
+                    if not isinstance(author, dict) or not author.get('name'):
+                        continue
+                    authors.append({
+                        'dialogue_id': dialogue.id,
+                        'dialogue_title': dialogue.title,
+                        'name': author.get('name', ''),
+                        'kind': author.get('kind', ''),
+                        'version': author.get('version', ''),
+                        'description': author.get('description', ''),
+                    })
+            elif dialogue.human_author:
+                authors.append({
+                    'dialogue_id': dialogue.id,
+                    'dialogue_title': dialogue.title,
+                    'name': dialogue.human_author.username,
+                    'kind': 'person',
+                    'version': '',
+                    'description': '',
+                })
+
+            for illustration in dialogue.illustrations.all():
+                image_url = ''
+                if illustration.image:
+                    image_url = request.build_absolute_uri(illustration.image.url)
+                illustrations.append({
+                    'id': illustration.id,
+                    'dialogue_id': dialogue.id,
+                    'dialogue_title': dialogue.title,
+                    'image': image_url,
+                    'caption': illustration.caption,
+                    'order': illustration.order,
+                })
+
+        return Response({
+            'section': SectionSerializer(section, context={'request': request}).data,
+            'literature': literature,
+            'authors': authors,
+            'illustrations': illustrations,
+        })
+
+
 class InterlocutorListView(generics.ListCreateAPIView):
     queryset = Interlocutor.objects.all().order_by('name')
     serializer_class = InterlocutorSerializer
@@ -84,7 +151,7 @@ class DialogueListView(generics.ListCreateAPIView):
     serializer_class = DialogueListSerializer
 
     def get_queryset(self):
-        qs = Dialogue.objects.select_related('section', 'human_author')
+        qs = Dialogue.objects.select_related('section', 'human_author').prefetch_related('illustrations')
         section_slug = self.request.query_params.get('section')
         if section_slug:
             qs = qs.filter(section__slug=section_slug)
