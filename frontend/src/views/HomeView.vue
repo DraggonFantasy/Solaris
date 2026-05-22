@@ -6,7 +6,9 @@
         <h1 class="hero-title">СОЛЯРИС</h1>
         <p class="hero-tagline">{{ t('home.tagline') }}</p>
         <p class="hero-brief">{{ t('home.brief') }}</p>
-        <RouterLink class="btn btn-primary" to="/sections">{{ t('home.explore') }}</RouterLink>
+        <button type="button" class="btn btn-primary" @click="showAbout = true">
+          {{ t('home.aboutProject') }}
+        </button>
       </div>
     </section>
 
@@ -14,13 +16,13 @@
       <h2 class="section-heading">{{ t('home.recentDialogues') }}</h2>
       <div class="dialogue-grid">
         <RouterLink
-          v-for="d in recentDialogues"
+          v-for="(d, index) in recentDialogues"
           :key="d.id"
           :to="`/dialogues/${d.id}`"
           class="dialogue-card card"
         >
           <div class="dialogue-section">{{ d.section_name }}</div>
-          <h3 class="dialogue-title">{{ d.title }}</h3>
+          <h3 class="dialogue-title">{{ index + 1 }}. {{ d.title }}</h3>
           <p v-if="d.summary" class="dialogue-summary">{{ d.summary }}</p>
           <div class="dialogue-meta">
             <span>{{ d.human_author_username }}</span>
@@ -31,6 +33,16 @@
         </RouterLink>
       </div>
     </section>
+
+    <div v-if="showAbout" class="about-modal" role="dialog" aria-modal="true" @click.self="showAbout = false">
+      <div class="about-modal-content card">
+        <button type="button" class="about-modal-close" :aria-label="t('common.close')" @click="showAbout = false">
+          ×
+        </button>
+        <h2>{{ t('home.aboutProject') }}</h2>
+        <MarkdownRenderer :content="t('home.aboutText')" />
+      </div>
+    </div>
   </div>
 </template>
 
@@ -38,9 +50,11 @@
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '../api'
+import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 
 const { t } = useI18n()
 const recentDialogues = ref([])
+const showAbout = ref(false)
 
 onMounted(async () => {
   try {
@@ -151,4 +165,47 @@ onMounted(async () => {
 }
 
 .spacer { flex: 1; }
+
+.about-modal {
+  align-items: center;
+  background: rgba(17, 24, 39, 0.72);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 1.5rem;
+  position: fixed;
+  z-index: 50;
+}
+
+.about-modal-content {
+  max-height: calc(100vh - 3rem);
+  max-width: min(820px, calc(100vw - 3rem));
+  overflow: auto;
+  padding: 2rem;
+  position: relative;
+}
+
+.about-modal-content h2 {
+  color: var(--color-primary);
+  font-family: var(--font-serif);
+  font-size: 1.4rem;
+  margin-bottom: 1rem;
+}
+
+.about-modal-close {
+  align-items: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  cursor: pointer;
+  display: flex;
+  font-size: 1.25rem;
+  height: 2rem;
+  justify-content: center;
+  line-height: 1;
+  position: absolute;
+  right: 1rem;
+  top: 1rem;
+  width: 2rem;
+}
 </style>
