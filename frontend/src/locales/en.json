@@ -9,12 +9,25 @@
     "profile": "Profile",
     "admin": "Admin",
     "review": "Review",
-    "commentReview": "Comments"
+    "commentReview": "Comments",
+    "communications": "Communications"
+  },
+  "communications": {
+    "title": "Communications",
+    "intro": "Dialogue, comment, and moderation actions are collected here.",
+    "myDialoguesText": "View and edit your drafts and submitted dialogues.",
+    "createDialogueText": "Create a new dialogue in one of the sections.",
+    "reviewText": "Review dialogues submitted for moderation.",
+    "commentsText": "Moderate user comments.",
+    "adminText": "Django administration panel.",
+    "loginText": "Log in to work with your dialogues and comments."
   },
   "home": {
     "tagline": "A platform for dialogues between humans and artificial intelligence",
     "brief": "The Solaris project is created to organize, in a single environment, the discussion and study of questions of cognitivism — what is designated as cognition and thinking.",
     "explore": "Explore sections",
+    "aboutProject": "About the project",
+    "aboutText": "It is hard to deny that AI, especially LLMs, marks a new stage in the cognitive evolution of Homo sapiens and a new stage in the expansion of human cognitive capacities.\n\n**The Solaris project is being created to organize, in a single environment, the discussion and study of questions of cognitive science: what we call cognition and thinking.**\n\nWe see an analogy between the ocean in Stanislaw Lem's Solaris and LLMs.\nLike Lem's ocean, an LLM absorbs and takes in the contents of people's minds.\nIn this sense, an LLM is an objectified, externalized integral intelligence of Homo sapiens.\nThus cognition itself becomes an object of study to a greater degree than before.\n\n**In dialogues with LLMs, we learn about the world and study how the world is known.**\n\nThat latter task is the task of the Solaris project.\nLLMs become intellectual partners for humans.\nAn LLM can be compared with Karl Popper's third world or Plato's world of ideas.\nSolaris contains dialogues initiated by authors around the problems briefly outlined above.\n\nNaturally, the Solaris environment should include **organized discussion** of published dialogues: comments, alternatives, proposals, illustrations, and so on.\n\nWe also note that as the Solaris project operates, both AI and Homo sapiens will deepen their understanding of the processes of **cognition and thinking**.\n\nThe Solaris project will make it possible not only to encounter views on cognition and thinking collected in one environment, but also to **support cognitive evolution**.\n\nIn Solaris dialogues, different views and theories of cognition encounter one another, and their natural selection takes place (see Karl Popper, Evolutionary Epistemology).\n\nWe note that **authors of dialogues** or conversations in a broader sense may be:\n\n* **Users** of the Solaris project, meaning people\n\n* **People who have already departed this world.** We believe that every person exists, but may be either living or deceased; in the latter case, they may be represented by an LLM or its agent\n\n* **Different LLMs and their agents.**\n\nAn agent may consider a problem in a particular context, from a particular angle, and from the standpoint of a particular approach, theory, or historical period.",
     "recentDialogues": "Recent dialogues"
   },
   "auth": {
@@ -36,12 +49,22 @@
   "sections": {
     "title": "Sections",
     "dialogues": "dialogues",
-    "viewSection": "View section"
+    "viewSection": "View section",
+    "addSection": "Add section",
+    "adminOnly": "Only an administrator can add sections.",
+    "sectionNumber": "Section {number}",
+    "sectionName": "Section name",
+    "sectionSlug": "Slug",
+    "sectionBrief": "Short description",
+    "sectionOrder": "Order",
+    "createError": "Could not create the section.",
+    "noResources": "No data yet."
   },
   "dialogues": {
     "title": "Dialogues",
     "by": "Author",
     "model": "Model",
+    "aiModel": "AI model",
     "likes": "likes",
     "comments": "comments",
     "summary": "Summary",

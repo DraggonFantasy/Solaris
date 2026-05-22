@@ -5,6 +5,7 @@ const routes = [
   { path: '/', component: () => import('../views/HomeView.vue'), name: 'home' },
   { path: '/login', component: () => import('../views/LoginView.vue'), name: 'login' },
   { path: '/register', component: () => import('../views/RegisterView.vue'), name: 'register' },
+  { path: '/communications', component: () => import('../views/CommunicationsView.vue'), name: 'communications' },
   { path: '/sections', component: () => import('../views/SectionsView.vue'), name: 'sections' },
   { path: '/sections/:slug', component: () => import('../views/SectionDetailView.vue'), name: 'section-detail' },
   { path: '/dialogues/:id', component: () => import('../views/DialogueDetailView.vue'), name: 'dialogue-detail' },
@@ -55,7 +56,10 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior: () => ({ top: 0 }),
+  scrollBehavior: (to) => {
+    if (to.hash) return { el: to.hash, top: 16 }
+    return { top: 0 }
+  },
 })
 
 router.beforeEach((to) => {
