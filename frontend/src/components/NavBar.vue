@@ -11,7 +11,9 @@
 
       <div class="navbar-right">
         <LanguageSwitcher />
-        <RouterLink to="/communications">{{ t('nav.communications') }}</RouterLink>
+        <button type="button" class="navbar-static-button" disabled>
+          {{ t('nav.communications') }}
+        </button>
       </div>
     </div>
   </nav>
@@ -63,8 +65,13 @@ const { t } = useI18n()
 }
 
 .navbar-links a,
-.navbar-right a {
+.navbar-right a,
+.navbar-static-button {
   color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  cursor: default;
+  font-family: var(--font-sans);
   text-decoration: none;
   font-size: 0.9375rem;
   font-weight: 500;
@@ -76,6 +83,10 @@ const { t } = useI18n()
 .navbar-right a:hover,
 .navbar-right a.router-link-active {
   color: var(--color-primary);
+}
+
+.navbar-static-button:disabled {
+  opacity: 1;
 }
 
 .navbar-right {
