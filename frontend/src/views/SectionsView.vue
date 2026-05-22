@@ -49,7 +49,6 @@
         :key="section.id"
         class="section-card card"
       >
-        <div class="section-number">{{ t('sections.sectionNumber', { number: index + 1 }) }}</div>
         <RouterLink :to="`/sections/${section.slug}`" class="section-title-button">
           {{ index + 1 }}. {{ section.name }}
         </RouterLink>
@@ -200,14 +199,6 @@ async function openResources(section, type) {
 .section-card:hover {
   box-shadow: var(--shadow-md);
   transform: translateY(-2px);
-}
-
-.section-number {
-  color: var(--color-accent);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
 }
 
 .section-title-button {

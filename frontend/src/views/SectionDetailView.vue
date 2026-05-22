@@ -3,7 +3,6 @@
     <RouterLink to="/sections" class="back-link">← {{ t('common.back') }}</RouterLink>
     <div class="section-header">
       <div>
-        <div class="section-number">{{ t('sections.sectionNumber', { number: sectionNumber }) }}</div>
         <h1 class="page-title">{{ sectionNumber }}. {{ section.name }}</h1>
         <p v-if="section.brief" class="section-brief">{{ section.brief }}</p>
       </div>
@@ -221,15 +220,6 @@ function closeDialogueInfo() {
   gap: 1.5rem;
   justify-content: space-between;
   margin-bottom: 2rem;
-}
-
-.section-number {
-  color: var(--color-accent);
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  margin-bottom: 0.35rem;
-  text-transform: uppercase;
 }
 
 .section-header .page-title {
