@@ -154,7 +154,7 @@ class DialogueListView(generics.ListCreateAPIView):
         qs = Dialogue.objects.select_related('section', 'human_author').prefetch_related('illustrations')
         section_slug = self.request.query_params.get('section')
         if section_slug:
-            qs = qs.filter(section__slug=section_slug)
+            return qs.filter(section__slug=section_slug, status=Dialogue.STATUS_PUBLISHED)
         if not (self.request.user.is_authenticated and self.request.user.is_staff):
             qs = qs.filter(status=Dialogue.STATUS_PUBLISHED)
         return qs
