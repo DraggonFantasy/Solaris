@@ -56,7 +56,11 @@
         </label>
         <label>
           {{ t('dialogue.moderationMessage') }}
-          <textarea v-model="moderationNoteDraft" rows="2" :placeholder="t('moderation.notePlaceholder')" />
+          <textarea
+            v-model="moderationNoteDraft"
+            rows="2"
+            :placeholder="statusDraft === 'changes_requested' ? t('moderation.changesNotePlaceholder') : t('moderation.notePlaceholder')"
+          />
         </label>
       </div>
       <button class="btn btn-primary btn-sm" type="submit" :disabled="savingStatus">

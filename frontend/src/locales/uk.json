@@ -185,7 +185,9 @@
     "reject": "Відхилити",
     "archive": "В архів",
     "statusLabel": "Статус",
-    "notePlaceholder": "Необов'язкова нотатка для автора"
+    "notePlaceholder": "Необов'язкова нотатка для автора",
+    "changesNoteLabel": "Пояснення для автора (необов'язково)",
+    "changesNotePlaceholder": "За бажанням опишіть, які саме зміни потрібно внести..."
   },
   "commentModeration": {
     "title": "Модерація коментарів",

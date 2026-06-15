@@ -109,3 +109,52 @@ class DialogueInlineImageTests(APITestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertFalse(DialogueInlineImage.objects.exists())
+
+
+class DialogueModerationTests(APITestCase):
+    def setUp(self):
+        self.moderator = get_user_model().objects.create_user(
+            username='moderator',
+            password='password',
+            is_staff=True,
+        )
+        self.author = get_user_model().objects.create_user(
+            username='author',
+            password='password',
+        )
+        section = Section.objects.create(name='Section', slug='moderation-section')
+        self.dialogue = Dialogue.objects.create(
+            title='Submitted dialogue',
+            section=section,
+            text='Text',
+            human_author=self.author,
+            status=Dialogue.STATUS_SUBMITTED,
+        )
+        self.client.force_authenticate(user=self.moderator)
+
+    def test_request_changes_allows_empty_moderation_note(self):
+        response = self.client.post(
+            f'/api/dialogues/{self.dialogue.id}/moderate/',
+            {'status': Dialogue.STATUS_CHANGES_REQUESTED, 'moderation_note': ''},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.dialogue.refresh_from_db()
+        self.assertEqual(self.dialogue.status, Dialogue.STATUS_CHANGES_REQUESTED)
+        self.assertEqual(self.dialogue.moderation_note, '')
+
+    def test_request_changes_saves_moderation_note(self):
+        response = self.client.post(
+            f'/api/dialogues/{self.dialogue.id}/moderate/',
+            {
+                'status': Dialogue.STATUS_CHANGES_REQUESTED,
+                'moderation_note': 'Clarify the second argument.',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.dialogue.refresh_from_db()
+        self.assertEqual(self.dialogue.status, Dialogue.STATUS_CHANGES_REQUESTED)
+        self.assertEqual(self.dialogue.moderation_note, 'Clarify the second argument.')
