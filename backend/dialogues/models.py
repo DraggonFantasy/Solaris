@@ -111,6 +111,15 @@ class DialogueIllustration(models.Model):
         return f'Illustration for "{self.dialogue.title}"'
 
 
+class DialogueInlineImage(models.Model):
+    dialogue = models.ForeignKey(Dialogue, on_delete=models.CASCADE, related_name='inline_images')
+    image = models.ImageField(upload_to='dialogue_inline_images/')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'Inline image for "{self.dialogue.title}"'
+
+
 class Comment(models.Model):
     dialogue = models.ForeignKey(Dialogue, on_delete=models.CASCADE, related_name='comments')
     parent = models.ForeignKey(

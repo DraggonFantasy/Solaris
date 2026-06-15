@@ -1,6 +1,9 @@
 from django.db import models
 from rest_framework import serializers
-from .models import Section, Interlocutor, Dialogue, DialogueIllustration, Comment, Like, DialogueOrder
+from .models import (
+    Section, Interlocutor, Dialogue, DialogueIllustration, DialogueInlineImage,
+    Comment, Like, DialogueOrder,
+)
 
 
 class SectionSerializer(serializers.ModelSerializer):
@@ -27,6 +30,12 @@ class DialogueIllustrationSerializer(serializers.ModelSerializer):
     class Meta:
         model = DialogueIllustration
         fields = ('id', 'image', 'caption', 'order')
+
+
+class DialogueInlineImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DialogueInlineImage
+        fields = ('id', 'image')
 
 
 class CommentSerializer(serializers.ModelSerializer):

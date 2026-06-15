@@ -1,5 +1,20 @@
 <template>
-  <div class="md-editor">
+  <div
+    class="md-editor"
+    :class="{ dragging }"
+    @dragenter.prevent="onDragEnter"
+    @dragover.prevent="onDragOver"
+    @dragleave.prevent="onDragLeave"
+    @drop.prevent="onDrop"
+  >
+    <input
+      ref="imageInput"
+      class="image-input"
+      type="file"
+      accept="image/*"
+      multiple
+      @change="onImageInput"
+    />
     <div class="md-toolbar">
       <button type="button" title="Bold" @click="insert('**', '**', 'bold text')">B</button>
       <button type="button" title="Italic" @click="insert('*', '*', 'italic text')"><em>I</em></button>
@@ -7,7 +22,7 @@
       <button type="button" title="Heading 3" @click="insertLine('### ', 'Heading')">H3</button>
       <button type="button" title="Blockquote" @click="insertLine('> ', 'quote')">❝</button>
       <button type="button" title="Code" @click="insert('`', '`', 'code')">{ }</button>
-      <button type="button" title="Image" @click="insert('![', '](https://example.com/image.jpg)', 'опис')">Img</button>
+      <button type="button" :title="imageButtonTitle" @click="openImagePicker">Img</button>
       <div class="toolbar-divider" />
       <button
         type="button"
@@ -25,6 +40,7 @@
         :placeholder="placeholder"
         @input="$emit('update:modelValue', $event.target.value)"
         @keydown.tab.prevent="onTab"
+        @paste="onPaste"
       />
       <div v-if="showPreview" class="md-preview" v-html="rendered" />
     </div>
@@ -33,6 +49,8 @@
       <span class="char-count">{{ modelValue.length }} chars</span>
       <span class="md-hint">Markdown supported</span>
     </div>
+
+    <div v-if="dragging" class="drop-overlay">{{ dropImageHint }}</div>
   </div>
 </template>
 
@@ -43,11 +61,16 @@ import { marked } from 'marked'
 const props = defineProps({
   modelValue: { type: String, default: '' },
   placeholder: { type: String, default: '' },
+  imageButtonTitle: { type: String, default: 'Upload image' },
+  dropImageHint: { type: String, default: 'Drop images here' },
 })
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'add-inline-image'])
 
 const textarea = ref(null)
+const imageInput = ref(null)
 const showPreview = ref(false)
+const dragging = ref(false)
+let dragDepth = 0
 
 const rendered = computed(() => marked.parse(props.modelValue || ''))
 
@@ -89,6 +112,76 @@ function insertLine(prefix, placeholder) {
 function onTab() {
   insert('  ', '', '')
 }
+
+function openImagePicker() {
+  imageInput.value?.click()
+}
+
+function onImageInput(event) {
+  insertImageFiles(event.target.files)
+  event.target.value = ''
+}
+
+function onPaste(event) {
+  const files = Array.from(event.clipboardData?.files || [])
+  if (!files.some(isImageFile)) return
+  event.preventDefault()
+  insertImageFiles(files)
+}
+
+function onDragEnter() {
+  dragDepth += 1
+  dragging.value = true
+}
+
+function onDragOver(event) {
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'copy'
+  }
+  dragging.value = true
+}
+
+function onDragLeave() {
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (dragDepth === 0) {
+    dragging.value = false
+  }
+}
+
+function onDrop(event) {
+  dragDepth = 0
+  dragging.value = false
+  insertImageFiles(event.dataTransfer?.files || [])
+}
+
+function isImageFile(file) {
+  return file?.type?.startsWith('image/')
+}
+
+function imageAlt(file) {
+  const name = (file.name || 'image').replace(/\.[^.]+$/, '')
+  return name.replace(/[[\]]/g, '').trim() || 'image'
+}
+
+function insertImageFiles(fileList) {
+  const files = Array.from(fileList || []).filter(isImageFile)
+  if (!files.length) return
+
+  const el = textarea.value
+  const cursor = el?.selectionStart ?? props.modelValue.length
+  const snippets = files.map((file) => {
+    const placeholder = URL.createObjectURL(file)
+    emit('add-inline-image', { file, placeholder })
+    return `![${imageAlt(file)}](${placeholder})`
+  })
+  const before = props.modelValue.slice(0, cursor)
+  const after = props.modelValue.slice(cursor)
+  const prefix = before && !before.endsWith('\n\n') ? (before.endsWith('\n') ? '\n' : '\n\n') : ''
+  const suffix = after && !after.startsWith('\n\n') ? (after.startsWith('\n') ? '\n' : '\n\n') : ''
+  const insertion = `${prefix}${snippets.join('\n\n')}${suffix}`
+  const newValue = `${before}${insertion}${after}`
+  applyValue(newValue, cursor + insertion.length)
+}
 </script>
 
 <style scoped>
@@ -99,6 +192,15 @@ function onTab() {
   display: flex;
   flex-direction: column;
   background: var(--color-surface);
+  position: relative;
+}
+
+.md-editor.dragging {
+  border-color: var(--color-primary);
+}
+
+.image-input {
+  display: none;
 }
 
 .md-toolbar {
@@ -231,5 +333,19 @@ function onTab() {
   color: var(--color-text-muted);
   border-top: 1px solid var(--color-border);
   background: var(--color-bg);
+}
+
+.drop-overlay {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--color-primary);
+  display: flex;
+  font-size: 1rem;
+  font-weight: 700;
+  inset: 0;
+  justify-content: center;
+  pointer-events: none;
+  position: absolute;
+  z-index: 10;
 }
 </style>

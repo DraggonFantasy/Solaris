@@ -116,6 +116,9 @@
           <MarkdownEditor
             v-model="form.text"
             :placeholder="dialoguePlaceholder"
+            :image-button-title="t('dialogue.inlineImageButton')"
+            :drop-image-hint="t('dialogue.inlineImageDropHint')"
+            @add-inline-image="queueInlineImage"
           />
           <aside class="speakers-panel" v-if="false">
             <div class="speakers-panel-header">
@@ -319,6 +322,7 @@ const authors = ref([])
 const existingIllustrations = ref([])
 const removedIllustrationIds = ref([])
 const newIllustrations = ref([])
+const pendingInlineImages = ref([])
 const speakerDraft = ref('')
 const originalStatus = ref('draft')
 
@@ -459,6 +463,12 @@ async function submit(submitForReview) {
     let { data } = isEditing.value
       ? await api.put(`/dialogues/${route.params.id}/`, payload)
       : await api.post('/dialogues/', payload)
+    const inlineImagesChanged = await syncInlineImages(data.id)
+    if (inlineImagesChanged) {
+      payload.text = form.value.text
+      const response = await api.put(`/dialogues/${data.id}/`, payload)
+      data = response.data
+    }
     await syncIllustrations(data.id)
     if (submitForReview) {
       const submitPayload = { ...payload, status: 'submitted' }
@@ -623,6 +633,38 @@ function insertSpeakerTurn(speaker) {
   const val = form.value.text
   const suffix = val && !val.endsWith('\n\n') ? (val.endsWith('\n') ? '\n' : '\n\n') : ''
   form.value.text = `${val}${suffix}## ${speaker}\n\n`
+}
+
+function queueInlineImage(payload) {
+  pendingInlineImages.value.push(payload)
+}
+
+async function syncInlineImages(dialogueId) {
+  if (!pendingInlineImages.value.length) return false
+  const queue = [...pendingInlineImages.value]
+  pendingInlineImages.value = []
+  let textChanged = false
+
+  for (let index = 0; index < queue.length; index += 1) {
+    const item = queue[index]
+    if (!form.value.text.includes(item.placeholder)) {
+      URL.revokeObjectURL(item.placeholder)
+      continue
+    }
+    try {
+      const data = new FormData()
+      data.append('image', item.file)
+      const response = await api.post(`/dialogues/${dialogueId}/inline-images/`, data)
+      form.value.text = form.value.text.split(item.placeholder).join(response.data.image)
+      URL.revokeObjectURL(item.placeholder)
+      textChanged = true
+    } catch (err) {
+      pendingInlineImages.value.push(item, ...queue.slice(index + 1))
+      throw err
+    }
+  }
+
+  return textChanged
 }
 
 function addIllustrationFiles(event) {
