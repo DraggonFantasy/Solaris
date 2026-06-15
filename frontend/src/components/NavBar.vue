@@ -11,7 +11,10 @@
 
       <div class="navbar-right">
         <LanguageSwitcher />
-        <button type="button" class="navbar-static-button" disabled>
+        <RouterLink v-if="auth.isStaff" to="/communications">
+          {{ t('nav.communications') }}
+        </RouterLink>
+        <button v-else type="button" class="navbar-static-button" disabled>
           {{ t('nav.communications') }}
         </button>
       </div>
@@ -21,9 +24,11 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
+import { useAuthStore } from '../stores/auth'
 import LanguageSwitcher from './LanguageSwitcher.vue'
 
 const { t } = useI18n()
+const auth = useAuthStore()
 </script>
 
 <style scoped>

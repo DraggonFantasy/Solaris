@@ -64,6 +64,15 @@ const rendered = computed(() => marked.parse(props.content || ''))
   margin: 1rem 0;
 }
 
+.markdown-body :deep(img) {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  display: block;
+  height: auto;
+  margin: 1rem 0;
+  max-width: 100%;
+}
+
 .markdown-body :deep(code) {
   background: var(--color-bg);
   padding: 0.15em 0.4em;

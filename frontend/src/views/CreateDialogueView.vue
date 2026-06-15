@@ -47,18 +47,27 @@
               <div>
                 <strong>{{ author.name }}</strong>
                 <span>{{ authorKindLabel(author.kind) }}</span>
+                <small v-if="author.version">{{ author.version }}</small>
               </div>
-              <button
-                v-if="!author.is_current_user"
-                type="button"
-                class="chip-remove"
-                :aria-label="t('dialogue.removeAuthor')"
-                @click="removeAuthor(index)"
-              >
-                ×
-              </button>
+              <div v-if="canModifyAuthor(author)" class="chip-actions">
+                <button
+                  type="button"
+                  class="chip-edit"
+                  @click="openAuthorModal(index)"
+                >
+                  {{ t('dialogue.editAuthor') }}
+                </button>
+                <button
+                  type="button"
+                  class="chip-remove"
+                  :aria-label="t('dialogue.removeAuthor')"
+                  @click="removeAuthor(index)"
+                >
+                  ×
+                </button>
+              </div>
             </div>
-            <button type="button" class="add-author-card" @click="openAuthorModal">
+            <button type="button" class="add-author-card" @click="openAuthorModal()">
               + {{ t('dialogue.addAuthor') }}
             </button>
           </div>
@@ -204,9 +213,9 @@
     </div>
 
     <div v-if="showAuthorModal" class="modal-backdrop" @click.self="closeAuthorModal">
-      <form class="modal-panel" @submit.prevent="addAuthor">
+      <form class="modal-panel" @submit.prevent="saveAuthor">
         <header class="modal-header">
-          <h2>{{ t('dialogue.addAuthor') }}</h2>
+          <h2>{{ editingAuthorIndex === null ? t('dialogue.addAuthor') : t('dialogue.editAuthor') }}</h2>
           <button type="button" class="modal-close" :aria-label="t('common.cancel')" @click="closeAuthorModal">×</button>
         </header>
 
@@ -231,6 +240,15 @@
         </div>
 
         <div class="form-group">
+          <label>{{ t('dialogue.authorVersion') }}</label>
+          <input
+            v-model="authorDraft.version"
+            type="text"
+            :placeholder="t('dialogue.authorVersionPlaceholder')"
+          />
+        </div>
+
+        <div class="form-group">
           <label>{{ t('dialogue.authorDescription') }}</label>
           <textarea
             v-model="authorDraft.description"
@@ -242,7 +260,7 @@
         <footer class="modal-actions">
           <button type="button" class="btn btn-outline" @click="closeAuthorModal">{{ t('common.cancel') }}</button>
           <button type="submit" class="btn btn-primary" :disabled="!authorDraft.name.trim()">
-            {{ t('dialogue.addAuthor') }}
+            {{ editingAuthorIndex === null ? t('dialogue.addAuthor') : t('common.save') }}
           </button>
         </footer>
       </form>
@@ -293,6 +311,7 @@ const submitting = ref(false)
 const error = ref('')
 const textStepError = ref('')
 const showAuthorModal = ref(false)
+const editingAuthorIndex = ref(null)
 const showImportMenu = ref(false)
 const importingShare = ref(false)
 const sections = ref([])
@@ -526,20 +545,35 @@ function persistAuthorPresets() {
   localStorage.setItem('solaris_author_presets', JSON.stringify(reusable.slice(0, 20)))
 }
 
-function addAuthor() {
+function saveAuthor() {
   const name = authorDraft.value.name.trim()
   if (!name) return
-  const suggestion = authorSuggestions.find((item) => item.name.toLowerCase() === name.toLowerCase())
   const author = {
-    localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
     kind: authorDraft.value.kind,
     name,
-    version: '',
+    version: authorDraft.value.version.trim(),
     description: authorDraft.value.description.trim(),
-    is_current_user: false,
   }
-  if (!authors.value.some((item) => item.name === author.name && item.kind === author.kind)) {
-    authors.value.push(author)
+  const currentIndex = editingAuthorIndex.value
+  const duplicate = authors.value.some((item, index) => {
+    return index !== currentIndex && item.name === author.name && item.kind === author.kind
+  })
+  if (duplicate) {
+    closeAuthorModal()
+    return
+  }
+  if (currentIndex === null) {
+    authors.value.push({
+      ...author,
+      localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+      is_current_user: false,
+    })
+  } else {
+    const existing = authors.value[currentIndex]
+    authors.value[currentIndex] = {
+      ...existing,
+      ...author,
+    }
   }
   closeAuthorModal()
 }
@@ -548,12 +582,27 @@ function removeAuthor(index) {
   authors.value.splice(index, 1)
 }
 
-function openAuthorModal() {
+function canModifyAuthor(author) {
+  return auth.isStaff || !author.is_current_user
+}
+
+function openAuthorModal(index = null) {
+  editingAuthorIndex.value = index
+  if (index !== null) {
+    const author = authors.value[index]
+    authorDraft.value = {
+      kind: author.kind || 'person',
+      name: author.name || '',
+      version: author.version || '',
+      description: author.description || '',
+    }
+  }
   showAuthorModal.value = true
 }
 
 function closeAuthorModal() {
   showAuthorModal.value = false
+  editingAuthorIndex.value = null
   authorDraft.value = { kind: 'ai_model', name: '', version: '', description: '' }
 }
 
@@ -935,6 +984,29 @@ async function handleImport(source) {
   cursor: pointer;
   font-size: 1.2rem;
   line-height: 1;
+}
+
+.chip-actions {
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+  flex-shrink: 0;
+  gap: 0.35rem;
+}
+
+.chip-edit {
+  background: transparent;
+  border: 0;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0;
+}
+
+.chip-edit:hover,
+.chip-remove:hover {
+  color: var(--color-primary-dark);
 }
 
 .add-author-card {

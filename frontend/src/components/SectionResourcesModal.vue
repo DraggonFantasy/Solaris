@@ -17,13 +17,19 @@
       </div>
 
       <div v-else-if="type === 'authors'" class="resource-list">
-        <article v-for="(item, index) in items" :key="`${item.dialogue_id}-${item.name}-${index}`" class="resource-item">
+        <article v-for="item in authorItems" :key="item.key" class="resource-item">
           <h3>
             {{ item.name }}
             <small v-if="item.version">{{ item.version }}</small>
           </h3>
-          <div class="resource-source">{{ item.dialogue_title }}</div>
           <p v-if="item.description">{{ item.description }}</p>
+          <ul class="author-dialogues">
+            <li v-for="dialogue in item.dialogues" :key="dialogue.id">
+              <RouterLink :to="`/dialogues/${dialogue.id}`">
+                {{ dialogue.title }}
+              </RouterLink>
+            </li>
+          </ul>
         </article>
       </div>
 
@@ -56,6 +62,34 @@ defineEmits(['close'])
 
 const { t } = useI18n()
 const items = computed(() => props.resources?.[props.type] || [])
+const authorItems = computed(() => {
+  const groups = new Map()
+  items.value.forEach((item) => {
+    const name = (item.name || '').trim()
+    if (!name) return
+    const version = (item.version || '').trim()
+    const description = (item.description || '').trim()
+    const kind = (item.kind || '').trim()
+    const key = [kind, name, version, description].join('::').toLowerCase()
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        name,
+        version,
+        description,
+        dialogues: [],
+      })
+    }
+    const group = groups.get(key)
+    if (!group.dialogues.some((dialogue) => dialogue.id === item.dialogue_id)) {
+      group.dialogues.push({
+        id: item.dialogue_id,
+        title: item.dialogue_title,
+      })
+    }
+  })
+  return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name))
+})
 </script>
 
 <style scoped>
@@ -145,6 +179,25 @@ const items = computed(() => props.resources?.[props.type] || [])
   font-size: 0.8rem;
   font-weight: 600;
   margin-bottom: 0.35rem;
+}
+
+.author-dialogues {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.55rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.author-dialogues a {
+  color: var(--color-accent);
+  font-size: 0.86rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.author-dialogues a:hover {
+  text-decoration: underline;
 }
 
 .illustration-resource-grid {
