@@ -1,15 +1,19 @@
 from django.db import models
 import re
 from urllib.parse import urlparse
-from rest_framework import generics, parsers, permissions, serializers, status
+from rest_framework import exceptions, generics, parsers, permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .models import Section, Interlocutor, Dialogue, DialogueIllustration, Comment, Like, DialogueOrder, AuditLog
+from .models import (
+    Section, Interlocutor, Dialogue, DialogueIllustration, DialogueInlineImage,
+    Comment, Like, DialogueOrder, AuditLog,
+)
 from .serializers import (
     SectionSerializer, InterlocutorSerializer,
     DialogueListSerializer, DialogueDetailSerializer, DialogueWriteSerializer,
     DialogueModerationSerializer, CommentSerializer, CommentEditSerializer,
-    CommentReviewSerializer, DialogueIllustrationSerializer, DialogueOrderSerializer
+    CommentReviewSerializer, DialogueIllustrationSerializer, DialogueInlineImageSerializer,
+    DialogueOrderSerializer,
 )
 
 
@@ -363,7 +367,7 @@ class DialogueIllustrationCreateView(generics.CreateAPIView):
     def perform_create(self, serializer):
         dialogue = generics.get_object_or_404(Dialogue, pk=self.kwargs['dialogue_id'])
         if not can_edit_dialogue(self.request.user, dialogue):
-            raise permissions.PermissionDenied('You cannot edit illustrations for this dialogue.')
+            raise exceptions.PermissionDenied('You cannot edit illustrations for this dialogue.')
         illustration = serializer.save(dialogue=dialogue)
         AuditLog.objects.create(
             user=self.request.user,
@@ -385,7 +389,7 @@ class DialogueIllustrationDetailView(generics.RetrieveUpdateDestroyAPIView):
     def check_object_permissions(self, request, obj):
         super().check_object_permissions(request, obj)
         if not can_edit_dialogue(request.user, obj.dialogue):
-            raise permissions.PermissionDenied('You cannot edit this illustration.')
+            raise exceptions.PermissionDenied('You cannot edit this illustration.')
 
     def perform_update(self, serializer):
         illustration = serializer.save()
@@ -404,6 +408,24 @@ class DialogueIllustrationDetailView(generics.RetrieveUpdateDestroyAPIView):
             action='delete_illustration',
             object_type='DialogueIllustration',
             object_id=str(illustration_id),
+        )
+
+
+class DialogueInlineImageCreateView(generics.CreateAPIView):
+    serializer_class = DialogueInlineImageSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [parsers.MultiPartParser, parsers.FormParser]
+
+    def perform_create(self, serializer):
+        dialogue = generics.get_object_or_404(Dialogue, pk=self.kwargs['dialogue_id'])
+        if not can_edit_dialogue(self.request.user, dialogue):
+            raise exceptions.PermissionDenied('You cannot add inline images to this dialogue.')
+        inline_image = serializer.save(dialogue=dialogue)
+        AuditLog.objects.create(
+            user=self.request.user,
+            action='create_inline_image',
+            object_type='DialogueInlineImage',
+            object_id=str(inline_image.id),
         )
 
 

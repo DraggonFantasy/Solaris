@@ -1,5 +1,8 @@
 from django.contrib import admin
-from .models import Section, Interlocutor, Dialogue, DialogueIllustration, Comment, Like, DialogueOrder, AuditLog
+from .models import (
+    Section, Interlocutor, Dialogue, DialogueIllustration, DialogueInlineImage,
+    Comment, Like, DialogueOrder, AuditLog,
+)
 
 
 @admin.register(Section)
@@ -20,6 +23,12 @@ class IllustrationInline(admin.TabularInline):
     extra = 1
 
 
+class DialogueInlineImageInline(admin.TabularInline):
+    model = DialogueInlineImage
+    extra = 0
+    readonly_fields = ('image', 'created_at')
+
+
 class CommentInline(admin.TabularInline):
     model = Comment
     extra = 0
@@ -33,7 +42,7 @@ class DialogueAdmin(admin.ModelAdmin):
     search_fields = ('title', 'text', 'summary', 'review_note', 'moderation_note')
     list_editable = ('status',)
     filter_horizontal = ('interlocutors',)
-    inlines = [IllustrationInline, CommentInline]
+    inlines = [IllustrationInline, DialogueInlineImageInline, CommentInline]
     readonly_fields = ('created_at', 'updated_at')
 
 
