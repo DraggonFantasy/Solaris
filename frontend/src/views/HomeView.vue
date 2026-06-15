@@ -6,9 +6,14 @@
         <h1 class="hero-title">СОЛЯРИС</h1>
         <p class="hero-tagline">{{ t('home.tagline') }}</p>
         <p class="hero-brief">{{ t('home.brief') }}</p>
-        <button type="button" class="btn btn-primary" @click="showAbout = true">
-          {{ t('home.aboutProject') }}
-        </button>
+        <div class="hero-actions">
+          <button type="button" class="btn btn-primary" @click="showAbout = true">
+            {{ t('home.aboutProject') }}
+          </button>
+          <RouterLink v-if="!auth.isAuthenticated" class="btn btn-outline btn-compact" to="/login">
+            {{ t('nav.login') }}
+          </RouterLink>
+        </div>
       </div>
     </section>
 
@@ -27,9 +32,11 @@
 <script setup>
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useAuthStore } from '../stores/auth'
 import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 
 const { t } = useI18n()
+const auth = useAuthStore()
 const showAbout = ref(false)
 </script>
 
@@ -69,6 +76,18 @@ const showAbout = ref(false)
   margin: 0 auto 2rem;
   line-height: 1.8;
   color: var(--color-text);
+}
+
+.hero-actions {
+  align-items: center;
+  display: flex;
+  gap: 0.65rem;
+  justify-content: center;
+}
+
+.btn-compact {
+  font-size: 0.82rem;
+  padding: 0.35rem 0.8rem;
 }
 
 .about-modal {

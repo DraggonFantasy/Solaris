@@ -46,7 +46,7 @@
           <textarea
             v-model="dialogue.nextNote"
             rows="3"
-            :placeholder="t('moderation.notePlaceholder')"
+            :placeholder="dialogue.nextStatus === 'changes_requested' ? t('moderation.changesNotePlaceholder') : t('moderation.notePlaceholder')"
           />
           <button class="btn btn-primary btn-sm" type="submit" :disabled="savingId === dialogue.id">
             {{ savingId === dialogue.id ? t('common.loading') : t('common.save') }}

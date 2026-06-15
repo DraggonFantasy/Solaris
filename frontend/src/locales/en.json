@@ -185,7 +185,9 @@
     "reject": "Reject",
     "archive": "Archive",
     "statusLabel": "Status",
-    "notePlaceholder": "Optional note for the author"
+    "notePlaceholder": "Optional note for the author",
+    "changesNoteLabel": "Explanation for the author (optional)",
+    "changesNotePlaceholder": "Optionally describe the exact changes required..."
   },
   "commentModeration": {
     "title": "Comment moderation",

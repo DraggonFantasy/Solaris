@@ -51,7 +51,7 @@
                 class="btn btn-outline btn-sm"
                 type="button"
                 :disabled="savingKey === `dialogue-${dialogue.id}`"
-                @click="moderateDialogue(dialogue, 'changes_requested')"
+                @click="openChangesModal(dialogue)"
               >
                 {{ t('moderation.requestChanges') }}
               </button>
@@ -116,6 +116,47 @@
         </div>
       </section>
     </div>
+
+    <div
+      v-if="changesDialogue"
+      class="changes-modal"
+      role="dialog"
+      aria-modal="true"
+      @click.self="closeChangesModal"
+    >
+      <form class="changes-modal-content card" @submit.prevent="submitChangesRequest">
+        <header class="changes-modal-header">
+          <div>
+            <h2>{{ t('moderation.requestChanges') }}</h2>
+            <p>{{ changesDialogue.title }}</p>
+          </div>
+          <button type="button" class="changes-modal-close" :aria-label="t('common.close')" @click="closeChangesModal">
+            ×
+          </button>
+        </header>
+
+        <div v-if="error" class="alert alert-error">{{ error }}</div>
+
+        <label class="changes-note-field">
+          <span>{{ t('moderation.changesNoteLabel') }}</span>
+          <textarea
+            v-model="changesNote"
+            rows="5"
+            :placeholder="t('moderation.changesNotePlaceholder')"
+            autofocus
+          />
+        </label>
+
+        <footer class="changes-modal-actions">
+          <button type="button" class="btn btn-outline" @click="closeChangesModal">
+            {{ t('common.cancel') }}
+          </button>
+          <button class="btn btn-primary" type="submit" :disabled="savingKey === `dialogue-${changesDialogue.id}`">
+            {{ savingKey === `dialogue-${changesDialogue.id}` ? t('common.loading') : t('moderation.requestChanges') }}
+          </button>
+        </footer>
+      </form>
+    </div>
   </div>
 </template>
 
@@ -132,6 +173,8 @@ const pendingComments = ref([])
 const loading = ref(true)
 const savingKey = ref('')
 const error = ref('')
+const changesDialogue = ref(null)
+const changesNote = ref('')
 
 onMounted(async () => {
   if (auth.isAuthenticated && !auth.user) {
@@ -152,7 +195,10 @@ async function loadQueues() {
       api.get('/dialogues/review/', { params: { status: 'submitted' } }),
       api.get('/comments/review/', { params: { approved: 'false' } }),
     ])
-    pendingDialogues.value = dialogueRes.data.results || dialogueRes.data
+    pendingDialogues.value = (dialogueRes.data.results || dialogueRes.data).map((dialogue) => ({
+      ...dialogue,
+      moderation_note: dialogue.moderation_note || '',
+    }))
     pendingComments.value = commentRes.data.results || commentRes.data
   } catch {
     error.value = t('common.error')
@@ -161,17 +207,41 @@ async function loadQueues() {
   }
 }
 
-async function moderateDialogue(dialogue, nextStatus) {
+function openChangesModal(dialogue) {
+  error.value = ''
+  changesDialogue.value = dialogue
+  changesNote.value = dialogue.moderation_note || ''
+}
+
+function closeChangesModal() {
+  if (savingKey.value) return
+  changesDialogue.value = null
+  changesNote.value = ''
+}
+
+async function submitChangesRequest() {
+  if (!changesDialogue.value) return
+  const dialogue = changesDialogue.value
+  const saved = await moderateDialogue(dialogue, 'changes_requested', changesNote.value)
+  if (saved) {
+    changesDialogue.value = null
+    changesNote.value = ''
+  }
+}
+
+async function moderateDialogue(dialogue, nextStatus, moderationNote = dialogue.moderation_note || '') {
   savingKey.value = `dialogue-${dialogue.id}`
   error.value = ''
   try {
     await api.post(`/dialogues/${dialogue.id}/moderate/`, {
       status: nextStatus,
-      moderation_note: dialogue.moderation_note || '',
+      moderation_note: moderationNote,
     })
     pendingDialogues.value = pendingDialogues.value.filter((item) => item.id !== dialogue.id)
+    return true
   } catch {
     error.value = t('common.error')
+    return false
   } finally {
     savingKey.value = ''
   }
@@ -318,6 +388,89 @@ function formatDate(iso) {
   font-size: 0.82rem;
   justify-content: center;
   padding: 0.375rem 0.75rem;
+}
+
+.changes-modal {
+  align-items: center;
+  background: rgba(17, 24, 39, 0.72);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 1.5rem;
+  position: fixed;
+  z-index: 70;
+}
+
+.changes-modal-content {
+  max-width: 560px;
+  padding: 1.5rem;
+  width: 100%;
+}
+
+.changes-modal-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+}
+
+.changes-modal-header h2 {
+  color: var(--color-primary);
+  font-family: var(--font-serif);
+  font-size: 1.2rem;
+  margin-bottom: 0.25rem;
+}
+
+.changes-modal-header p {
+  color: var(--color-text-muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.changes-modal-close {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  display: flex;
+  font-size: 1.4rem;
+  height: 2rem;
+  justify-content: center;
+  line-height: 1;
+  width: 2rem;
+}
+
+.changes-note-field {
+  color: var(--color-text);
+  display: flex;
+  flex-direction: column;
+  font-size: 0.85rem;
+  font-weight: 600;
+  gap: 0.4rem;
+}
+
+.changes-note-field textarea {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 400;
+  padding: 0.65rem 0.75rem;
+  resize: vertical;
+}
+
+.changes-note-field textarea:focus {
+  border-color: var(--color-primary);
+  outline: none;
+}
+
+.changes-modal-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1.25rem;
 }
 
 @media (max-width: 760px) {
