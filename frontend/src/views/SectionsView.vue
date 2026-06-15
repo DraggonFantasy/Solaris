@@ -21,6 +21,7 @@
       <div class="form-group">
         <label>{{ t('sections.sectionSlug') }}</label>
         <input v-model="sectionDraft.slug" type="text" required />
+        <p class="field-help">{{ t('sections.sectionSlugHelp') }}</p>
       </div>
       <div class="form-group">
         <label>{{ t('sections.sectionBrief') }}</label>
@@ -29,6 +30,7 @@
       <div class="form-group">
         <label>{{ t('sections.sectionOrder') }}</label>
         <input v-model.number="sectionDraft.order" type="number" min="0" />
+        <p class="field-help">{{ t('sections.sectionOrderHelp') }}</p>
       </div>
       <div v-if="sectionFormError" class="alert alert-error">{{ sectionFormError }}</div>
       <div class="form-actions">
@@ -180,6 +182,13 @@ async function openResources(section, type) {
 .form-actions {
   display: flex;
   gap: 0.75rem;
+}
+
+.field-help {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  margin: 0;
 }
 
 .sections-grid {

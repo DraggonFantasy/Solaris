@@ -82,6 +82,17 @@ body {
   color: white;
 }
 
+.btn-danger {
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  color: var(--color-error);
+}
+
+.btn-danger:hover {
+  background: var(--color-error);
+  color: white;
+}
+
 .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;

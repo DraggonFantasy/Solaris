@@ -7,6 +7,7 @@
       <button type="button" title="Heading 3" @click="insertLine('### ', 'Heading')">H3</button>
       <button type="button" title="Blockquote" @click="insertLine('> ', 'quote')">❝</button>
       <button type="button" title="Code" @click="insert('`', '`', 'code')">{ }</button>
+      <button type="button" title="Image" @click="insert('![', '](https://example.com/image.jpg)', 'опис')">Img</button>
       <div class="toolbar-divider" />
       <button
         type="button"
@@ -204,6 +205,15 @@ function onTab() {
   padding-left: 1rem;
   color: var(--color-text-muted);
   margin: 0.75rem 0;
+}
+
+.md-preview :deep(img) {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  display: block;
+  height: auto;
+  margin: 0.75rem 0;
+  max-width: 100%;
 }
 
 .md-preview :deep(code) {

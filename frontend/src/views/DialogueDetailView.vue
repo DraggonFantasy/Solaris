@@ -19,11 +19,23 @@
         <RouterLink class="btn btn-outline" :to="{ name: 'edit-dialogue', params: { id: dialogue.id } }">
           {{ t('dialogue.edit') }}
         </RouterLink>
+        <button
+          v-if="canDelete"
+          class="btn btn-danger"
+          type="button"
+          :disabled="deleting"
+          @click="deleteDialogue"
+        >
+          {{ deleting ? t('common.loading') : t('dialogue.delete') }}
+        </button>
       </div>
       <div v-else-if="canWithdraw" class="dialogue-actions">
         <button class="btn btn-outline" :disabled="withdrawing" @click="withdrawFromReview">
           {{ withdrawing ? t('common.loading') : t('dialogue.withdrawReview') }}
         </button>
+      </div>
+      <div v-if="dialogueActionError" class="alert alert-error dialogue-action-error">
+        {{ dialogueActionError }}
       </div>
     </header>
 
@@ -194,7 +206,7 @@
 
 <script setup>
 import { computed, ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 import api from '../api'
@@ -202,10 +214,12 @@ import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 
 const { t } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const auth = useAuthStore()
 const dialogue = ref(null)
 const loading = ref(true)
 const detailErrorStatus = ref(null)
+const dialogueActionError = ref('')
 const commentText = ref('')
 const commentNotice = ref('')
 const commentError = ref('')
@@ -215,6 +229,7 @@ const replyText = ref('')
 const editingCommentId = ref(null)
 const editCommentText = ref('')
 const withdrawing = ref(false)
+const deleting = ref(false)
 const savingStatus = ref(false)
 const statusDraft = ref('')
 const moderationNoteDraft = ref('')
@@ -228,6 +243,7 @@ const canEdit = computed(() => {
   if (!dialogue.value || !auth.isAuthenticated) return false
   return auth.isStaff || ['draft', 'changes_requested', 'rejected'].includes(dialogue.value.status)
 })
+const canDelete = computed(() => canEdit.value)
 const canWithdraw = computed(() => {
   return auth.isAuthenticated && dialogue.value?.status === 'submitted'
 })
@@ -399,16 +415,34 @@ async function saveCommentEdit(comment) {
 
 async function withdrawFromReview() {
   if (!canWithdraw.value) return
+  dialogueActionError.value = ''
   withdrawing.value = true
   try {
     const { data } = await api.post(`/dialogues/${route.params.id}/withdraw/`)
     setDialogue(data)
+  } catch {
+    dialogueActionError.value = t('common.error')
   } finally {
     withdrawing.value = false
   }
 }
 
+async function deleteDialogue() {
+  if (!canDelete.value || !window.confirm(t('dialogue.deleteConfirm'))) return
+  dialogueActionError.value = ''
+  deleting.value = true
+  try {
+    await api.delete(`/dialogues/${route.params.id}/`)
+    router.push(auth.isStaff ? { name: 'communications' } : { name: 'my-dialogues' })
+  } catch {
+    dialogueActionError.value = t('dialogue.deleteError')
+  } finally {
+    deleting.value = false
+  }
+}
+
 async function updateDialogueStatus() {
+  dialogueActionError.value = ''
   savingStatus.value = true
   try {
     const { data } = await api.post(`/dialogues/${route.params.id}/moderate/`, {
@@ -421,6 +455,8 @@ async function updateDialogueStatus() {
       moderation_note: data.moderation_note,
       published: data.status === 'published',
     })
+  } catch {
+    dialogueActionError.value = t('common.error')
   } finally {
     savingStatus.value = false
   }
@@ -504,6 +540,10 @@ async function updateDialogueStatus() {
 .dialogue-actions {
   display: flex;
   gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.dialogue-action-error {
   margin-top: 1rem;
 }
 
