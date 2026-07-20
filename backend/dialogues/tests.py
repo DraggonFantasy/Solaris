@@ -161,7 +161,9 @@ class DialogueModerationTests(APITestCase):
         self.assertEqual(self.dialogue.status, Dialogue.STATUS_CHANGES_REQUESTED)
         self.assertEqual(self.dialogue.moderation_note, 'Clarify the second argument.')
 
-    def test_publication_requires_external_link(self):
+    def test_publication_requires_external_link_or_text(self):
+        self.dialogue.text = ''
+        self.dialogue.save(update_fields=['text', 'published', 'updated_at'])
         response = self.client.post(
             f'/api/dialogues/{self.dialogue.id}/moderate/',
             {'status': Dialogue.STATUS_PUBLISHED, 'moderation_note': ''},
@@ -187,6 +189,17 @@ class DialogueModerationTests(APITestCase):
         self.assertEqual(self.dialogue.status, Dialogue.STATUS_PUBLISHED)
         self.assertTrue(self.dialogue.published)
 
+    def test_dialogue_with_pasted_text_can_be_published(self):
+        response = self.client.post(
+            f'/api/dialogues/{self.dialogue.id}/moderate/',
+            {'status': Dialogue.STATUS_PUBLISHED, 'moderation_note': ''},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.dialogue.refresh_from_db()
+        self.assertEqual(self.dialogue.status, Dialogue.STATUS_PUBLISHED)
+
 
 class ExternalDialogueLinkTests(APITestCase):
     def setUp(self):
@@ -199,7 +212,7 @@ class ExternalDialogueLinkTests(APITestCase):
         self.section = Section.objects.create(name='Links', slug='links')
         self.client.force_authenticate(user=self.author)
 
-    def test_submitted_dialogue_requires_external_link(self):
+    def test_submitted_dialogue_requires_external_link_or_text(self):
         response = self.client.post('/api/dialogues/', {
             'title': 'Missing link',
             'section': self.section.id,
@@ -207,7 +220,20 @@ class ExternalDialogueLinkTests(APITestCase):
         }, format='json')
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn('source_url', response.data)
+        self.assertIn('non_field_errors', response.data)
+
+    def test_pasted_dialogue_can_be_submitted_without_external_link(self):
+        response = self.client.post('/api/dialogues/', {
+            'title': 'Pasted dialogue',
+            'section': self.section.id,
+            'text': '## Author\n\nQuestion\n\n## AI\n\nAnswer',
+            'status': Dialogue.STATUS_SUBMITTED,
+        }, format='json')
+
+        self.assertEqual(response.status_code, 201)
+        dialogue = Dialogue.objects.get(pk=response.data['id'])
+        self.assertEqual(dialogue.source_url, '')
+        self.assertIn('Question', dialogue.text)
 
     def test_external_link_adds_human_and_source_model_authors(self):
         response = self.client.post('/api/dialogues/', {

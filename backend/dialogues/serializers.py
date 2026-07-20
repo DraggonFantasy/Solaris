@@ -300,10 +300,12 @@ class DialogueWriteSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'authors': 'Authors must be a list.'})
         next_status = attrs.get('status', getattr(self.instance, 'status', Dialogue.STATUS_DRAFT))
         source_url = attrs.get('source_url', getattr(self.instance, 'source_url', ''))
-        if next_status in {Dialogue.STATUS_SUBMITTED, Dialogue.STATUS_PUBLISHED} and not source_url:
-            raise serializers.ValidationError({
-                'source_url': 'A public link to the external dialogue is required before submission.'
-            })
+        text = attrs.get('text', getattr(self.instance, 'text', ''))
+        has_source = bool((source_url or '').strip() or (text or '').strip())
+        if next_status in {Dialogue.STATUS_SUBMITTED, Dialogue.STATUS_PUBLISHED} and not has_source:
+            raise serializers.ValidationError(
+                'Provide either a public link to the external dialogue or paste the dialogue text.'
+            )
         return attrs
 
     def create(self, validated_data):
@@ -345,9 +347,12 @@ class DialogueModerationSerializer(serializers.ModelSerializer):
         }
         if value not in allowed:
             raise serializers.ValidationError('Unsupported moderation status.')
-        if value == Dialogue.STATUS_PUBLISHED and not self.instance.source_url:
+        has_source = bool(
+            (self.instance.source_url or '').strip() or (self.instance.text or '').strip()
+        )
+        if value == Dialogue.STATUS_PUBLISHED and not has_source:
             raise serializers.ValidationError(
-                'A public link to the external dialogue is required before publication.'
+                'A dialogue link or pasted dialogue text is required before publication.'
             )
         return value
 

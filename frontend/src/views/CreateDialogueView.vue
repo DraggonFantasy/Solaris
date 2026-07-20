@@ -36,7 +36,7 @@
         </div>
 
         <div class="form-group">
-          <label>{{ t('dialogue.sourceUrl') }} *</label>
+          <label>{{ t('dialogue.sourceUrl') }}</label>
           <input
             v-model.trim="form.source_url"
             type="url"
@@ -164,6 +164,9 @@
             </form>
           </aside>
         </div>
+        <div v-if="!form.source_url && !form.text.trim()" class="alert alert-info dialogue-step-error">
+          {{ t('dialogue.sourceOrTextRequired') }}
+        </div>
         <div v-if="textStepError" class="alert alert-error dialogue-step-error">{{ textStepError }}</div>
       </div>
 
@@ -224,6 +227,9 @@
           </div>
         </div>
 
+        <div v-if="!form.source_url && !form.text.trim()" class="alert alert-info">
+          {{ t('dialogue.sourceOrTextRequired') }}
+        </div>
         <div v-if="error" class="alert alert-error">{{ error }}</div>
       </div>
 
@@ -413,9 +419,13 @@ const dialogueSpeakers = computed(() => {
 
 const canProceed = computed(() => {
   if (currentStep.value === 0) {
-    return form.value.section && form.value.title.trim() && isExternalUrlValid.value && authors.value.length > 0
+    return basicContextValid.value && sourceUrlAcceptable.value
   }
   return true
+})
+
+const basicContextValid = computed(() => {
+  return form.value.section && form.value.title.trim() && authors.value.length > 0
 })
 
 const isExternalUrlValid = computed(() => {
@@ -428,7 +438,13 @@ const isExternalUrlValid = computed(() => {
   }
 })
 
-const canSubmit = computed(() => canProceed.value && isExternalUrlValid.value)
+const sourceUrlAcceptable = computed(() => !form.value.source_url || isExternalUrlValid.value)
+
+const canSubmit = computed(() => {
+  return basicContextValid.value
+    && sourceUrlAcceptable.value
+    && (isExternalUrlValid.value || form.value.text.trim())
+})
 
 onMounted(async () => {
   if (auth.isAuthenticated && !auth.user) {
