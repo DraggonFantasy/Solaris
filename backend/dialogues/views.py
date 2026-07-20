@@ -134,6 +134,65 @@ class SectionResourcesView(APIView):
         })
 
 
+class SolarisDialogueContextView(APIView):
+    """Public, provider-neutral context that authors can give to any LLM."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        dialogues = (
+            Dialogue.objects
+            .filter(status=Dialogue.STATUS_PUBLISHED)
+            .select_related('section', 'human_author')
+            .order_by('section__order', 'created_at')
+        )
+        entries = []
+        markdown_parts = [
+            '# Контекст платформи «Соляріс»',
+            '',
+            'Нижче наведені опубліковані діалоги різних авторів. '
+            'Враховуйте їх як спільний контекст нового діалогу.',
+        ]
+        for dialogue in dialogues:
+            author_names = [
+                author.get('name', '')
+                for author in dialogue.authors if isinstance(author, dict) and author.get('name')
+            ] if isinstance(dialogue.authors, list) else []
+            entry = {
+                'id': dialogue.id,
+                'title': dialogue.title,
+                'section': dialogue.section.name,
+                'summary': dialogue.summary,
+                'authors': author_names,
+                'model': dialogue.llm_name,
+                'literature': dialogue.recommended_literature,
+                'source_url': dialogue.source_url,
+                'text': dialogue.text,
+            }
+            entries.append(entry)
+            markdown_parts.extend([
+                '',
+                f'## {dialogue.section.name}: {dialogue.title}',
+                f'Автори: {", ".join(author_names)}' if author_names else '',
+                f'Модель ШІ: {dialogue.llm_name}' if dialogue.llm_name else '',
+                f'Посилання: {dialogue.source_url}' if dialogue.source_url else '',
+                '',
+                dialogue.summary.strip(),
+                '',
+                dialogue.text.strip(),
+                '',
+                f'Рекомендована література: {dialogue.recommended_literature.strip()}'
+                if dialogue.recommended_literature.strip() else '',
+            ])
+
+        markdown = '\n'.join(part for part in markdown_parts if part is not None).strip()
+        return Response({
+            'dialogue_count': len(entries),
+            'markdown': markdown,
+            'dialogues': entries,
+        })
+
+
 class InterlocutorListView(generics.ListCreateAPIView):
     queryset = Interlocutor.objects.all().order_by('name')
     serializer_class = InterlocutorSerializer
@@ -290,9 +349,18 @@ class DialogueImportShareView(APIView):
 
     allowed_hosts = {
         'chatgpt.com',
+        'chat.openai.com',
         'claude.ai',
         'gemini.google.com',
+        'share.google',
     }
+
+    def host_is_allowed(self, hostname):
+        hostname = (hostname or '').lower().rstrip('.')
+        return any(
+            hostname == allowed or hostname.endswith(f'.{allowed}')
+            for allowed in self.allowed_hosts
+        )
 
     def post(self, request):
         url = (request.data.get('url') or '').strip()
@@ -300,7 +368,7 @@ class DialogueImportShareView(APIView):
             return Response({'detail': 'Share URL is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         parsed = urlparse(url)
-        if parsed.scheme not in {'http', 'https'} or parsed.netloc not in self.allowed_hosts:
+        if parsed.scheme not in {'http', 'https'} or not self.host_is_allowed(parsed.hostname):
             return Response({'detail': 'Unsupported share URL.'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:

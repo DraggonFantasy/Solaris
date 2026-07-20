@@ -2,6 +2,8 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from rest_framework.test import APITestCase
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from .models import Dialogue, DialogueInlineImage, Section
 
@@ -158,3 +160,126 @@ class DialogueModerationTests(APITestCase):
         self.dialogue.refresh_from_db()
         self.assertEqual(self.dialogue.status, Dialogue.STATUS_CHANGES_REQUESTED)
         self.assertEqual(self.dialogue.moderation_note, 'Clarify the second argument.')
+
+    def test_publication_requires_external_link(self):
+        response = self.client.post(
+            f'/api/dialogues/{self.dialogue.id}/moderate/',
+            {'status': Dialogue.STATUS_PUBLISHED, 'moderation_note': ''},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.dialogue.refresh_from_db()
+        self.assertEqual(self.dialogue.status, Dialogue.STATUS_SUBMITTED)
+
+    def test_dialogue_with_external_link_can_be_published(self):
+        self.dialogue.source_url = 'https://chatgpt.com/share/example'
+        self.dialogue.save(update_fields=['source_url', 'published', 'updated_at'])
+
+        response = self.client.post(
+            f'/api/dialogues/{self.dialogue.id}/moderate/',
+            {'status': Dialogue.STATUS_PUBLISHED, 'moderation_note': ''},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.dialogue.refresh_from_db()
+        self.assertEqual(self.dialogue.status, Dialogue.STATUS_PUBLISHED)
+        self.assertTrue(self.dialogue.published)
+
+
+class ExternalDialogueLinkTests(APITestCase):
+    def setUp(self):
+        self.author = get_user_model().objects.create_user(
+            username='author-link',
+            first_name='Ada',
+            last_name='Lovelace',
+            password='password',
+        )
+        self.section = Section.objects.create(name='Links', slug='links')
+        self.client.force_authenticate(user=self.author)
+
+    def test_submitted_dialogue_requires_external_link(self):
+        response = self.client.post('/api/dialogues/', {
+            'title': 'Missing link',
+            'section': self.section.id,
+            'status': Dialogue.STATUS_SUBMITTED,
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('source_url', response.data)
+
+    def test_external_link_adds_human_and_source_model_authors(self):
+        response = self.client.post('/api/dialogues/', {
+            'title': 'Gemini dialogue',
+            'section': self.section.id,
+            'source_url': 'https://share.google/aimode/example',
+            'summary': '',
+            'status': Dialogue.STATUS_SUBMITTED,
+            'authors': [{'kind': 'person', 'name': 'Coauthor'}],
+        }, format='json')
+
+        self.assertEqual(response.status_code, 201)
+        dialogue = Dialogue.objects.get(pk=response.data['id'])
+        self.assertEqual(dialogue.source_url, 'https://share.google/aimode/example')
+        self.assertEqual(dialogue.llm_name, 'Gemini')
+        self.assertEqual(
+            [(author['kind'], author['name']) for author in dialogue.authors],
+            [('person', 'Ada Lovelace'), ('person', 'Coauthor'), ('ai_model', 'Gemini')],
+        )
+
+    def test_private_external_link_is_rejected(self):
+        response = self.client.post('/api/dialogues/', {
+            'title': 'Private link',
+            'section': self.section.id,
+            'source_url': 'http://127.0.0.1/share/example',
+            'status': Dialogue.STATUS_SUBMITTED,
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('source_url', response.data)
+
+    def test_share_google_can_be_imported(self):
+        extractor = SimpleNamespace(extract_share=lambda url: {
+            'service': 'gemini',
+            'title': 'Imported title',
+            'messages': [
+                {'role': 'user', 'content': 'Question'},
+                {'role': 'assistant', 'content': 'Answer'},
+            ],
+        })
+        with patch.dict('sys.modules', {'llm_shared_chat': extractor}):
+            response = self.client.post('/api/dialogues/import-share/', {
+                'url': 'https://share.google/aimode/example',
+            }, format='json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['service'], 'gemini')
+        self.assertIn('Question', response.data['markdown'])
+
+
+class SolarisDialogueContextTests(APITestCase):
+    def test_context_contains_all_and_only_published_dialogues(self):
+        section = Section.objects.create(name='Context', slug='context')
+        published = Dialogue.objects.create(
+            title='Public knowledge',
+            section=section,
+            source_url='https://chatgpt.com/share/public',
+            text='Useful public dialogue',
+            status=Dialogue.STATUS_PUBLISHED,
+            authors=[{'kind': 'ai_model', 'name': 'ChatGPT'}],
+        )
+        Dialogue.objects.create(
+            title='Private draft',
+            section=section,
+            text='Secret draft',
+            status=Dialogue.STATUS_DRAFT,
+        )
+
+        response = self.client.get('/api/dialogues/context/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['dialogue_count'], 1)
+        self.assertEqual(response.data['dialogues'][0]['id'], published.id)
+        self.assertIn('Useful public dialogue', response.data['markdown'])
+        self.assertNotIn('Secret draft', response.data['markdown'])

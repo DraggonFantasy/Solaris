@@ -48,21 +48,13 @@ class Dialogue(models.Model):
         (STATUS_ARCHIVED, 'Archived'),
     ]
 
-    STYLE_CHOICES = [
-        ('rhetorical', 'Rhetorical'),
-        ('dialectical', 'Dialectical'),
-        ('socratic', 'Socratic'),
-        ('debate', 'Debate'),
-        ('other', 'Other'),
-    ]
-
     title = models.CharField(max_length=500)
     section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name='dialogues')
-    text = models.TextField()
+    source_url = models.URLField(max_length=2048, blank=True)
+    text = models.TextField(blank=True)
     summary = models.TextField(blank=True)
     food_for_thought = models.TextField(blank=True)
     recommended_literature = models.TextField(blank=True)
-    style = models.CharField(max_length=50, choices=STYLE_CHOICES, default='other')
     human_author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

@@ -1,9 +1,91 @@
+import ipaddress
+from urllib.parse import urlparse
+
 from django.db import models
 from rest_framework import serializers
 from .models import (
     Section, Interlocutor, Dialogue, DialogueIllustration, DialogueInlineImage,
     Comment, Like, DialogueOrder,
 )
+
+
+AI_PROVIDERS = (
+    ('gemini.google.com', 'Gemini'),
+    ('share.google', 'Gemini'),
+    ('chatgpt.com', 'ChatGPT'),
+    ('chat.openai.com', 'ChatGPT'),
+    ('claude.ai', 'Claude'),
+    ('grok.com', 'Grok'),
+    ('copilot.microsoft.com', 'Microsoft Copilot'),
+    ('perplexity.ai', 'Perplexity'),
+)
+
+
+def infer_ai_provider(url):
+    hostname = (urlparse(url or '').hostname or '').lower().rstrip('.')
+    for domain, provider in AI_PROVIDERS:
+        if hostname == domain or hostname.endswith(f'.{domain}'):
+            return provider
+    return hostname.removeprefix('www.')
+
+
+def validate_external_url(value):
+    value = (value or '').strip()
+    if not value:
+        return value
+    parsed = urlparse(value)
+    hostname = (parsed.hostname or '').lower().rstrip('.')
+    if parsed.scheme not in {'http', 'https'} or not hostname:
+        raise serializers.ValidationError('Enter a valid public HTTP(S) URL.')
+    if parsed.username or parsed.password:
+        raise serializers.ValidationError('Credentials are not allowed in a dialogue URL.')
+    if hostname == 'localhost' or hostname.endswith('.local'):
+        raise serializers.ValidationError('The dialogue URL must point to a public external resource.')
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        address = None
+    if address and not address.is_global:
+        raise serializers.ValidationError('The dialogue URL must point to a public external resource.')
+    return value
+
+
+def normalize_dialogue_authors(authors, human_author, source_url):
+    normalized = []
+    human_name = ''
+    if human_author:
+        human_name = ' '.join(
+            part for part in (human_author.first_name, human_author.last_name) if part
+        ).strip() or human_author.username
+
+    for author in authors if isinstance(authors, list) else []:
+        if not isinstance(author, dict) or not str(author.get('name', '')).strip():
+            continue
+        if author.get('is_current_user') or author.get('is_source_model'):
+            continue
+        if human_name and author.get('kind') == 'person' and author.get('name') == human_name:
+            continue
+        normalized.append(author)
+
+    if human_author:
+        normalized.insert(0, {
+            'kind': 'person',
+            'name': human_name,
+            'version': '',
+            'description': human_author.bio or '',
+            'is_current_user': True,
+        })
+
+    provider = infer_ai_provider(source_url)
+    if provider:
+        normalized.append({
+            'kind': 'ai_model',
+            'name': provider,
+            'version': '',
+            'description': '',
+            'is_source_model': True,
+        })
+    return normalized
 
 
 class SectionSerializer(serializers.ModelSerializer):
@@ -108,7 +190,7 @@ class DialogueListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dialogue
-        fields = ('id', 'title', 'section', 'section_name', 'section_slug', 'summary', 'style',
+        fields = ('id', 'title', 'section', 'section_name', 'section_slug', 'source_url', 'summary',
                   'recommended_literature', 'illustrations',
                   'human_author_username', 'authors', 'llm_name', 'llm_version',
                   'status', 'review_note', 'moderation_note', 'published', 'created_at',
@@ -137,8 +219,8 @@ class DialogueDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dialogue
-        fields = ('id', 'title', 'section', 'section_name', 'section_slug', 'text', 'summary',
-                  'food_for_thought', 'recommended_literature', 'style',
+        fields = ('id', 'title', 'section', 'section_name', 'section_slug', 'source_url', 'text', 'summary',
+                  'food_for_thought', 'recommended_literature',
                   'human_author_username', 'human_author_bio',
                   'authors', 'llm_name', 'llm_version', 'interlocutors', 'illustrations',
                   'status', 'review_note', 'moderation_note', 'published', 'created_at', 'updated_at',
@@ -178,6 +260,10 @@ class DialogueDetailSerializer(serializers.ModelSerializer):
 
 
 class DialogueWriteSerializer(serializers.ModelSerializer):
+    source_url = serializers.URLField(
+        max_length=2048, required=False, allow_blank=True,
+        validators=[validate_external_url],
+    )
     interlocutor_ids = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Interlocutor.objects.all(),
         source='interlocutors', required=False
@@ -185,8 +271,8 @@ class DialogueWriteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dialogue
-        fields = ('id', 'title', 'section', 'text', 'summary', 'food_for_thought',
-                  'recommended_literature', 'style', 'llm_name', 'llm_version',
+        fields = ('id', 'title', 'section', 'source_url', 'text', 'summary', 'food_for_thought',
+                  'recommended_literature', 'llm_name', 'llm_version',
                   'authors', 'review_note', 'interlocutor_ids', 'status', 'published')
         read_only_fields = ('id', 'published')
 
@@ -212,7 +298,36 @@ class DialogueWriteSerializer(serializers.ModelSerializer):
         authors = attrs.get('authors')
         if authors is not None and not isinstance(authors, list):
             raise serializers.ValidationError({'authors': 'Authors must be a list.'})
+        next_status = attrs.get('status', getattr(self.instance, 'status', Dialogue.STATUS_DRAFT))
+        source_url = attrs.get('source_url', getattr(self.instance, 'source_url', ''))
+        if next_status in {Dialogue.STATUS_SUBMITTED, Dialogue.STATUS_PUBLISHED} and not source_url:
+            raise serializers.ValidationError({
+                'source_url': 'A public link to the external dialogue is required before submission.'
+            })
         return attrs
+
+    def create(self, validated_data):
+        validated_data['authors'] = normalize_dialogue_authors(
+            validated_data.get('authors', []),
+            validated_data.get('human_author'),
+            validated_data.get('source_url', ''),
+        )
+        provider = infer_ai_provider(validated_data.get('source_url', ''))
+        if provider:
+            validated_data['llm_name'] = provider
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        source_url = validated_data.get('source_url', instance.source_url)
+        validated_data['authors'] = normalize_dialogue_authors(
+            validated_data.get('authors', instance.authors),
+            instance.human_author,
+            source_url,
+        )
+        provider = infer_ai_provider(source_url)
+        if provider:
+            validated_data['llm_name'] = provider
+        return super().update(instance, validated_data)
 
 
 class DialogueModerationSerializer(serializers.ModelSerializer):
@@ -230,6 +345,10 @@ class DialogueModerationSerializer(serializers.ModelSerializer):
         }
         if value not in allowed:
             raise serializers.ValidationError('Unsupported moderation status.')
+        if value == Dialogue.STATUS_PUBLISHED and not self.instance.source_url:
+            raise serializers.ValidationError(
+                'A public link to the external dialogue is required before publication.'
+            )
         return value
 
 

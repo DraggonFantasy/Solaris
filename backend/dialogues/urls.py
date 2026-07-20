@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import (
-    SectionListView, SectionDetailView, SectionResourcesView,
+    SectionListView, SectionDetailView, SectionResourcesView, SolarisDialogueContextView,
     InterlocutorListView,
     DialogueListView, DialogueDetailView, MyDialoguesView,
     DialogueReviewListView, DialogueModerateView, DialogueWithdrawView,
@@ -15,6 +15,7 @@ urlpatterns = [
     path('sections/', SectionListView.as_view(), name='section_list'),
     path('sections/<slug:slug>/', SectionDetailView.as_view(), name='section_detail'),
     path('sections/<slug:slug>/resources/', SectionResourcesView.as_view(), name='section_resources'),
+    path('dialogues/context/', SolarisDialogueContextView.as_view(), name='dialogue_context'),
     path('interlocutors/', InterlocutorListView.as_view(), name='interlocutor_list'),
     path('dialogues/', DialogueListView.as_view(), name='dialogue_list'),
     path('dialogues/mine/', MyDialoguesView.as_view(), name='my_dialogues'),
