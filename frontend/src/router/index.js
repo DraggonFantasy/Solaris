@@ -9,7 +9,7 @@ const routes = [
     path: '/communications',
     component: () => import('../views/CommunicationsView.vue'),
     name: 'communications',
-    meta: { requiresAuth: true, requiresStaff: true }
+    meta: { requiresAuth: true }
   },
   { path: '/sections', component: () => import('../views/SectionsView.vue'), name: 'sections' },
   { path: '/sections/:slug', component: () => import('../views/SectionDetailView.vue'), name: 'section-detail' },

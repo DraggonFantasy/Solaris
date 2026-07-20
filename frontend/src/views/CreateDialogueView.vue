@@ -36,7 +36,28 @@
         </div>
 
         <div class="form-group">
-          <label>{{ t('dialogue.description') }} *</label>
+          <label>{{ t('dialogue.sourceUrl') }} *</label>
+          <input
+            v-model.trim="form.source_url"
+            type="url"
+            :placeholder="t('dialogue.sourceUrlPlaceholder')"
+            required
+            @blur="syncSourceModelAuthor"
+          />
+          <p class="field-help">{{ t('dialogue.sourceUrlHelp') }}</p>
+          <a
+            v-if="isExternalUrlValid"
+            class="source-preview-link"
+            :href="form.source_url"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {{ t('dialogue.openExternal') }} ↗
+          </a>
+        </div>
+
+        <div class="form-group">
+          <label>{{ t('dialogue.description') }}</label>
           <textarea v-model="form.summary" rows="3" :placeholder="t('dialogue.descriptionPlaceholder')" />
         </div>
 
@@ -76,16 +97,6 @@
           </datalist>
         </div>
 
-        <div class="form-group">
-          <label>{{ t('dialogue.style') }}</label>
-          <select v-model="form.style">
-            <option value="other">{{ t('dialogue.styleOther') }}</option>
-            <option value="socratic">{{ t('dialogue.styleSocratic') }}</option>
-            <option value="dialectical">{{ t('dialogue.styleDialectical') }}</option>
-            <option value="rhetorical">{{ t('dialogue.styleRhetorical') }}</option>
-            <option value="debate">{{ t('dialogue.styleDebate') }}</option>
-          </select>
-        </div>
       </div>
 
       <!-- Step 1: Dialogue text -->
@@ -112,6 +123,9 @@
             </div>
           </div>
         </div>
+        <p v-if="form.source_url" class="field-help import-source-hint">
+          {{ t('dialogue.importUsesSourceUrl') }}
+        </p>
         <div class="dialogue-editor-layout">
           <MarkdownEditor
             v-model="form.text"
@@ -275,6 +289,9 @@
         ← {{ t('common.back') }}
       </button>
       <div class="nav-right">
+        <button class="btn btn-outline" type="button" :disabled="submitting" @click="cancelEditing">
+          {{ t('common.cancel') }}
+        </button>
         <button
           v-if="currentStep < steps.length - 1"
           class="btn btn-primary"
@@ -284,11 +301,12 @@
           {{ t('dialogue.next') }} →
         </button>
         <template v-else>
-          <button class="btn btn-outline" :disabled="submitting" @click="submit(false)">
-            {{ isEditing ? t('dialogue.saveChanges') : t('dialogue.saveDraft') }}
-          </button>
-          <button class="btn btn-primary" :disabled="submitting" @click="submit(true)">
-            {{ submitting ? t('common.loading') : t('dialogue.submitReview') }}
+          <button
+            class="btn btn-primary"
+            :disabled="submitting || !canSubmit"
+            @click="submit(auth.isStaff && isEditing ? false : true)"
+          >
+            {{ submitting ? t('common.loading') : (auth.isStaff && isEditing ? t('common.save') : t('dialogue.submitModerator')) }}
           </button>
         </template>
       </div>
@@ -297,7 +315,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
@@ -357,9 +375,9 @@ const isEditing = computed(() => route.name === 'edit-dialogue')
 const form = ref({
   section: '',
   title: '',
+  source_url: '',
   llm_name: '',
   llm_version: '',
-  style: 'other',
   text: '',
   summary: '',
   food_for_thought: '',
@@ -395,10 +413,22 @@ const dialogueSpeakers = computed(() => {
 
 const canProceed = computed(() => {
   if (currentStep.value === 0) {
-    return form.value.section && form.value.title.trim() && form.value.summary.trim() && authors.value.length > 0
+    return form.value.section && form.value.title.trim() && isExternalUrlValid.value && authors.value.length > 0
   }
   return true
 })
+
+const isExternalUrlValid = computed(() => {
+  try {
+    const url = new URL(form.value.source_url)
+    return ['http:', 'https:'].includes(url.protocol)
+      && !['localhost', '127.0.0.1', '::1'].includes(url.hostname)
+  } catch {
+    return false
+  }
+})
+
+const canSubmit = computed(() => canProceed.value && isExternalUrlValid.value)
 
 onMounted(async () => {
   if (auth.isAuthenticated && !auth.user) {
@@ -433,16 +463,6 @@ function nextStep() {
 }
 
 function validateTextStep() {
-  if (!form.value.text.trim()) {
-    textStepError.value = t('dialogue.textRequired')
-    return false
-  }
-  /*
-  if (!dialogueSpeakers.value.length) {
-    textStepError.value = t('dialogue.speakerHeadingRequired')
-    return false
-  }
-  */
   return true
 }
 
@@ -450,6 +470,7 @@ async function submit(submitForReview) {
   error.value = ''
   submitting.value = true
   try {
+    syncSourceModelAuthor()
     persistAuthorPresets()
     const firstAiAuthor = authors.value.find((author) => author.kind === 'ai_model')
     const payload = {
@@ -457,22 +478,24 @@ async function submit(submitForReview) {
       authors: authors.value.map(({ localId, ...author }) => author),
       llm_name: firstAiAuthor?.name || '',
       llm_version: firstAiAuthor?.version || '',
-      status: isEditing.value ? originalStatus.value : 'draft',
       published: false
     }
-    let { data } = isEditing.value
-      ? await api.put(`/dialogues/${route.params.id}/`, payload)
-      : await api.post('/dialogues/', payload)
+    let data
+    if (isEditing.value) {
+      const response = await api.patch(`/dialogues/${route.params.id}/`, payload)
+      data = response.data
+    } else {
+      const response = await api.post('/dialogues/', { ...payload, status: 'draft' })
+      data = response.data
+    }
     const inlineImagesChanged = await syncInlineImages(data.id)
     if (inlineImagesChanged) {
-      payload.text = form.value.text
-      const response = await api.put(`/dialogues/${data.id}/`, payload)
+      const response = await api.patch(`/dialogues/${data.id}/`, { text: form.value.text })
       data = response.data
     }
     await syncIllustrations(data.id)
     if (submitForReview) {
-      const submitPayload = { ...payload, status: 'submitted' }
-      const response = await api.put(`/dialogues/${data.id}/`, submitPayload)
+      const response = await api.patch(`/dialogues/${data.id}/`, { status: 'submitted' })
       data = response.data
     }
     if (submitForReview && data.status === 'published') {
@@ -497,9 +520,9 @@ async function loadDialogue() {
   form.value = {
     section: data.section,
     title: data.title || '',
+    source_url: data.source_url || '',
     llm_name: data.llm_name || '',
     llm_version: data.llm_version || '',
-    style: data.style || 'other',
     text: data.text || '',
     summary: data.summary || '',
     food_for_thought: data.food_for_thought || '',
@@ -714,12 +737,13 @@ async function syncIllustrations(dialogueId) {
 
 async function handleImport(source) {
   showImportMenu.value = false
-  const url = window.prompt(t('dialogue.importUrlPrompt', { source }))
+  const url = form.value.source_url || window.prompt(t('dialogue.importUrlPrompt', { source }))
   if (!url) return
   textStepError.value = ''
   importingShare.value = true
   try {
     const { data } = await api.post('/dialogues/import-share/', { url })
+    form.value.source_url = url
     const suffix = form.value.text && !form.value.text.endsWith('\n\n')
       ? (form.value.text.endsWith('\n') ? '\n' : '\n\n')
       : ''
@@ -735,6 +759,7 @@ async function handleImport(source) {
         name: serviceAuthor.name,
         version: '',
         description: '',
+        is_source_model: true,
       })
     }
   } catch (err) {
@@ -743,6 +768,50 @@ async function handleImport(source) {
     importingShare.value = false
   }
 }
+
+function sourceProvider(urlValue) {
+  let hostname = ''
+  try {
+    hostname = new URL(urlValue).hostname.toLowerCase()
+  } catch {
+    return ''
+  }
+  if (hostname === 'share.google' || hostname.endsWith('.share.google') || hostname === 'gemini.google.com' || hostname.endsWith('.gemini.google.com')) return 'Gemini'
+  if (hostname === 'chatgpt.com' || hostname.endsWith('.chatgpt.com') || hostname === 'chat.openai.com') return 'ChatGPT'
+  if (hostname === 'claude.ai' || hostname.endsWith('.claude.ai')) return 'Claude'
+  if (hostname === 'grok.com' || hostname.endsWith('.grok.com')) return 'Grok'
+  if (hostname === 'copilot.microsoft.com' || hostname.endsWith('.copilot.microsoft.com')) return 'Microsoft Copilot'
+  if (hostname === 'perplexity.ai' || hostname.endsWith('.perplexity.ai')) return 'Perplexity'
+  return hostname.replace(/^www\./, '')
+}
+
+function syncSourceModelAuthor() {
+  const provider = sourceProvider(form.value.source_url)
+  authors.value = authors.value.filter((author) => !author.is_source_model)
+  if (!provider) return
+  authors.value.push({
+    localId: `source-model-${provider}`,
+    kind: 'ai_model',
+    name: provider,
+    version: '',
+    description: '',
+    is_source_model: true,
+  })
+  form.value.llm_name = provider
+  form.value.llm_version = ''
+}
+
+function cancelEditing() {
+  if (isEditing.value) {
+    router.push({ name: 'dialogue-detail', params: { id: route.params.id } })
+  } else {
+    router.push({ name: 'sections' })
+  }
+}
+
+watch(() => form.value.source_url, () => {
+  syncSourceModelAuthor()
+})
 </script>
 
 <style scoped>
@@ -966,6 +1035,25 @@ async function handleImport(source) {
 
 .dialogue-step-error {
   margin-top: 1rem;
+}
+
+.field-help {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  margin: 0.35rem 0 0;
+}
+
+.source-preview-link {
+  color: var(--color-primary);
+  display: inline-block;
+  font-size: 0.85rem;
+  margin-top: 0.45rem;
+  overflow-wrap: anywhere;
+}
+
+.import-source-hint {
+  margin-bottom: 0.85rem;
 }
 
 .wizard-nav {

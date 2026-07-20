@@ -10,6 +10,15 @@
         <span v-if="dialogue.llm_name">{{ t('dialogues.model') }}: <strong>{{ dialogue.llm_name }} {{ dialogue.llm_version }}</strong></span>
         <span>{{ formatDate(dialogue.created_at) }}</span>
       </div>
+      <a
+        v-if="dialogue.source_url"
+        class="dialogue-external-link btn btn-outline"
+        :href="dialogue.source_url"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {{ t('dialogue.openExternal') }} ↗
+      </a>
       <div v-if="dialogue.authors?.length" class="dialogue-authors">
         <span v-for="author in dialogue.authors" :key="`${author.kind}-${author.name}`" class="author-pill">
           {{ author.name }}<small v-if="author.version"> {{ author.version }}</small>
@@ -96,8 +105,11 @@
       </div>
     </div>
 
-    <div class="dialogue-text card">
+    <div v-if="dialogue.text" class="dialogue-text card">
       <MarkdownRenderer :content="dialogue.text" />
+    </div>
+    <div v-else class="dialogue-text card text-muted">
+      {{ t('dialogue.externalOnly') }}
     </div>
 
     <div v-if="dialogue.food_for_thought" class="dialogue-block">

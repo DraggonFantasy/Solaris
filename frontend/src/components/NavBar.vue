@@ -11,7 +11,7 @@
 
       <div class="navbar-right">
         <LanguageSwitcher />
-        <RouterLink v-if="auth.isStaff" to="/communications">
+        <RouterLink v-if="auth.isAuthenticated" to="/communications">
           {{ t('nav.communications') }}
         </RouterLink>
         <button v-else type="button" class="navbar-static-button" disabled>

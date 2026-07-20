@@ -1,10 +1,39 @@
 <template>
   <div>
-    <h1 class="page-title">{{ t('communications.title') }}</h1>
-    <p class="page-intro">{{ t('communications.intro') }}</p>
+    <header class="communications-header">
+      <div>
+        <h1 class="page-title">{{ t('communications.title') }}</h1>
+        <p class="page-intro">{{ t('communications.intro') }}</p>
+      </div>
+      <RouterLink class="btn btn-primary" :to="{ name: 'create-dialogue' }">
+        + {{ t('dialogue.createInSection') }}
+      </RouterLink>
+    </header>
 
-    <div v-if="!auth.isStaff" class="alert alert-error">{{ t('moderation.staffOnly') }}</div>
-    <div v-else-if="loading" class="text-muted">{{ t('common.loading') }}</div>
+    <section class="context-card card">
+      <div>
+        <h2>{{ t('communications.contextTitle') }}</h2>
+        <p>{{ t('communications.contextText', { count: contextCount }) }}</p>
+        <p v-if="contextNotice" class="context-notice">{{ contextNotice }}</p>
+      </div>
+      <div class="context-actions">
+        <button class="btn btn-outline" type="button" :disabled="contextLoading" @click="copySolarisContext">
+          {{ contextLoading ? t('common.loading') : t('communications.copyContext') }}
+        </button>
+        <a class="btn btn-outline" href="https://gemini.google.com/app" target="_blank" rel="noopener noreferrer">Gemini ↗</a>
+        <a class="btn btn-outline" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">ChatGPT ↗</a>
+        <a class="btn btn-outline" href="https://claude.ai/new" target="_blank" rel="noopener noreferrer">Claude ↗</a>
+      </div>
+    </section>
+
+    <div v-if="loading" class="text-muted">{{ t('common.loading') }}</div>
+    <div v-else-if="!auth.isStaff" class="author-communications card">
+      <h2>{{ t('communications.authorTitle') }}</h2>
+      <p>{{ t('communications.authorText') }}</p>
+      <RouterLink class="btn btn-outline" :to="{ name: 'my-dialogues' }">
+        {{ t('dialogue.myDialogues') }}
+      </RouterLink>
+    </div>
     <div v-else>
       <div v-if="error" class="alert alert-error">{{ error }}</div>
 
@@ -45,7 +74,7 @@
                 :disabled="savingKey === `dialogue-${dialogue.id}`"
                 @click="moderateDialogue(dialogue, 'published')"
               >
-                {{ t('moderation.publish') }}
+                {{ t('communications.save') }}
               </button>
               <button
                 class="btn btn-outline btn-sm"
@@ -61,7 +90,7 @@
                 :disabled="savingKey === `dialogue-${dialogue.id}`"
                 @click="moderateDialogue(dialogue, 'rejected')"
               >
-                {{ t('moderation.reject') }}
+                {{ t('communications.cancel') }}
               </button>
             </div>
           </article>
@@ -101,7 +130,7 @@
                 :disabled="savingKey === `comment-${comment.id}`"
                 @click="moderateComment(comment, 'approve')"
               >
-                {{ t('commentModeration.approve') }}
+                {{ t('communications.save') }}
               </button>
               <button
                 class="btn btn-danger btn-sm"
@@ -109,7 +138,62 @@
                 :disabled="savingKey === `comment-${comment.id}`"
                 @click="moderateComment(comment, 'reject')"
               >
-                {{ t('commentModeration.reject') }}
+                {{ t('communications.cancel') }}
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="queue-section">
+        <header class="queue-header">
+          <h2>{{ t('communications.literatureRequests') }}</h2>
+          <span>{{ t('communications.requestCount', { count: pendingLiterature.length }) }}</span>
+        </header>
+        <div v-if="pendingLiterature.length === 0" class="empty-state card">
+          {{ t('communications.emptyLiterature') }}
+        </div>
+        <div v-else class="request-list">
+          <article v-for="dialogue in pendingLiterature" :key="`literature-${dialogue.id}`" class="request-row card">
+            <div class="request-main">
+              <RouterLink :to="`/dialogues/${dialogue.id}`" class="request-title">{{ dialogue.title }}</RouterLink>
+              <p class="comment-text">{{ dialogue.recommended_literature }}</p>
+            </div>
+            <div class="request-actions">
+              <button class="btn btn-primary btn-sm" type="button" @click="moderateDialogue(dialogue, 'published')">
+                {{ t('communications.save') }}
+              </button>
+              <button class="btn btn-danger btn-sm" type="button" @click="moderateDialogue(dialogue, 'rejected')">
+                {{ t('communications.cancel') }}
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="queue-section">
+        <header class="queue-header">
+          <h2>{{ t('communications.illustrationRequests') }}</h2>
+          <span>{{ t('communications.requestCount', { count: pendingIllustrations.length }) }}</span>
+        </header>
+        <div v-if="pendingIllustrations.length === 0" class="empty-state card">
+          {{ t('communications.emptyIllustrations') }}
+        </div>
+        <div v-else class="request-list">
+          <article v-for="item in pendingIllustrations" :key="`illustration-${item.illustration.id}`" class="request-row card">
+            <div class="request-main illustration-request-main">
+              <img :src="item.illustration.image" :alt="item.illustration.caption" />
+              <div>
+                <RouterLink :to="`/dialogues/${item.dialogue.id}`" class="request-title">{{ item.dialogue.title }}</RouterLink>
+                <p v-if="item.illustration.caption" class="comment-text">{{ item.illustration.caption }}</p>
+              </div>
+            </div>
+            <div class="request-actions">
+              <button class="btn btn-primary btn-sm" type="button" @click="moderateDialogue(item.dialogue, 'published')">
+                {{ t('communications.save') }}
+              </button>
+              <button class="btn btn-danger btn-sm" type="button" @click="moderateDialogue(item.dialogue, 'rejected')">
+                {{ t('communications.cancel') }}
               </button>
             </div>
           </article>
@@ -161,7 +245,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 import api from '../api'
@@ -175,6 +259,20 @@ const savingKey = ref('')
 const error = ref('')
 const changesDialogue = ref(null)
 const changesNote = ref('')
+const contextMarkdown = ref('')
+const contextCount = ref(0)
+const contextLoading = ref(false)
+const contextNotice = ref('')
+
+const pendingLiterature = computed(() => {
+  return pendingDialogues.value.filter((dialogue) => dialogue.recommended_literature?.trim())
+})
+
+const pendingIllustrations = computed(() => {
+  return pendingDialogues.value.flatMap((dialogue) => {
+    return (dialogue.illustrations || []).map((illustration) => ({ dialogue, illustration }))
+  })
+})
 
 onMounted(async () => {
   if (auth.isAuthenticated && !auth.user) {
@@ -182,10 +280,45 @@ onMounted(async () => {
   }
   if (!auth.isStaff) {
     loading.value = false
-    return
+  } else {
+    await loadQueues()
   }
-  await loadQueues()
+  await loadContext()
 })
+
+async function loadContext() {
+  contextLoading.value = true
+  try {
+    const { data } = await api.get('/dialogues/context/')
+    contextMarkdown.value = data.markdown || ''
+    contextCount.value = data.dialogue_count || 0
+  } catch {
+    contextNotice.value = t('common.error')
+  } finally {
+    contextLoading.value = false
+  }
+}
+
+async function copySolarisContext() {
+  contextNotice.value = ''
+  if (!contextMarkdown.value) await loadContext()
+  try {
+    await navigator.clipboard.writeText(contextMarkdown.value)
+    contextNotice.value = t('communications.contextCopied')
+  } catch {
+    const textarea = document.createElement('textarea')
+    textarea.value = contextMarkdown.value
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    const copied = document.execCommand('copy')
+    textarea.remove()
+    contextNotice.value = copied
+      ? t('communications.contextCopied')
+      : t('communications.contextCopyError')
+  }
+}
 
 async function loadQueues() {
   loading.value = true
@@ -266,6 +399,70 @@ function formatDate(iso) {
 </script>
 
 <style scoped>
+.communications-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 1.5rem;
+  justify-content: space-between;
+}
+
+.communications-header .page-title {
+  margin-bottom: 1rem;
+}
+
+.context-card {
+  align-items: center;
+  display: flex;
+  gap: 1.5rem;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.context-card h2,
+.author-communications h2 {
+  color: var(--color-primary);
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  margin: 0 0 0.45rem;
+}
+
+.context-card p,
+.author-communications p {
+  color: var(--color-text-muted);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.context-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.context-notice {
+  color: var(--color-primary) !important;
+  font-size: 0.82rem;
+  margin-top: 0.35rem !important;
+}
+
+.author-communications .btn {
+  margin-top: 1rem;
+}
+
+.illustration-request-main {
+  align-items: flex-start;
+  display: flex;
+  gap: 1rem;
+}
+
+.illustration-request-main img {
+  border-radius: var(--radius);
+  max-height: 110px;
+  object-fit: cover;
+  width: 150px;
+}
+
 .page-intro {
   color: var(--color-text-muted);
   line-height: 1.7;
@@ -399,6 +596,18 @@ function formatDate(iso) {
   padding: 1.5rem;
   position: fixed;
   z-index: 70;
+}
+
+@media (max-width: 720px) {
+  .communications-header,
+  .context-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .context-actions {
+    justify-content: flex-start;
+  }
 }
 
 .changes-modal-content {

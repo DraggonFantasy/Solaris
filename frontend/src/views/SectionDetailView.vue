@@ -38,8 +38,24 @@
             {{ index + 1 }}. {{ d.title }}
           </RouterLink>
           <p v-if="d.summary" class="dialogue-row-summary">{{ d.summary }}</p>
+          <a
+            v-if="d.source_url"
+            class="dialogue-source-link"
+            :href="d.source_url"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {{ d.source_url }} ↗
+          </a>
         </div>
         <div class="dialogue-row-actions">
+          <RouterLink
+            v-if="auth.isStaff"
+            class="btn btn-primary btn-sm"
+            :to="{ name: 'edit-dialogue', params: { id: d.id } }"
+          >
+            {{ t('dialogue.edit') }}
+          </RouterLink>
           <button type="button" class="btn btn-outline btn-sm" @click="openDialogueInfo(d, 'authors')">
             {{ t('dialogues.by') }}
           </button>
@@ -116,10 +132,12 @@ import { computed, ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import api from '../api'
+import { useAuthStore } from '../stores/auth'
 import SectionResourcesModal from '../components/SectionResourcesModal.vue'
 
 const { t } = useI18n()
 const route = useRoute()
+const auth = useAuthStore()
 const section = ref(null)
 const dialogues = ref([])
 const sections = ref([])
@@ -168,6 +186,9 @@ const dialogueModalTitle = computed(() => {
 
 onMounted(async () => {
   try {
+    if (auth.isAuthenticated && !auth.user) {
+      await auth.fetchMe()
+    }
     const [sectionRes, dialogueRes, sectionsRes] = await Promise.all([
       api.get(`/sections/${route.params.slug}/`),
       api.get(`/dialogues/?section=${route.params.slug}`),
@@ -259,6 +280,14 @@ function closeDialogueInfo() {
   align-items: flex-start;
   gap: 1rem;
   transition: box-shadow 0.2s;
+}
+
+.dialogue-source-link {
+  color: var(--color-text-muted);
+  display: inline-block;
+  font-size: 0.82rem;
+  margin-top: 0.45rem;
+  overflow-wrap: anywhere;
 }
 
 .dialogue-row:hover { box-shadow: var(--shadow-md); }
