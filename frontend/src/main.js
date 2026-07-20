@@ -7,6 +7,17 @@ import uk from './locales/uk.json'
 import en from './locales/en.json'
 import './assets/main.css'
 
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault()
+
+  const reloadKey = 'solaris-preload-reload-at'
+  const lastReload = Number(sessionStorage.getItem(reloadKey) || 0)
+  if (Date.now() - lastReload > 30_000) {
+    sessionStorage.setItem(reloadKey, String(Date.now()))
+    window.location.reload()
+  }
+})
+
 const i18n = createI18n({
   legacy: false,
   locale: localStorage.getItem('locale') || 'uk',
