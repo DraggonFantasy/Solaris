@@ -38,15 +38,6 @@
             {{ index + 1 }}. {{ d.title }}
           </RouterLink>
           <p v-if="d.summary" class="dialogue-row-summary">{{ d.summary }}</p>
-          <a
-            v-if="d.source_url"
-            class="dialogue-source-link"
-            :href="d.source_url"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {{ d.source_url }} ↗
-          </a>
         </div>
         <div class="dialogue-row-actions">
           <RouterLink
@@ -280,14 +271,6 @@ function closeDialogueInfo() {
   align-items: flex-start;
   gap: 1rem;
   transition: box-shadow 0.2s;
-}
-
-.dialogue-source-link {
-  color: var(--color-text-muted);
-  display: inline-block;
-  font-size: 0.82rem;
-  margin-top: 0.45rem;
-  overflow-wrap: anywhere;
 }
 
 .dialogue-row:hover { box-shadow: var(--shadow-md); }

@@ -2,24 +2,11 @@
   <div class="create-page">
     <h1 class="page-title">{{ t('dialogue.createTitle') }}</h1>
 
-    <!-- Step indicator -->
-    <div class="steps">
-      <div
-        v-for="(step, i) in steps"
-        :key="i"
-        class="step"
-        :class="{ active: currentStep === i, done: currentStep > i }"
-      >
-        <div class="step-circle">{{ currentStep > i ? '✓' : i + 1 }}</div>
-        <span class="step-label">{{ step }}</span>
-      </div>
-      <div class="step-line" />
-    </div>
-
-    <div class="wizard-body card">
-
-      <!-- Step 0: Context -->
-      <div v-if="currentStep === 0">
+    <form
+      class="dialogue-form card"
+      @submit.prevent="submit(auth.isStaff && isEditing ? false : true)"
+    >
+      <div>
         <h2 class="step-title">{{ t('dialogue.step1Title') }}</h2>
 
         <div class="form-group">
@@ -36,7 +23,7 @@
         </div>
 
         <div class="form-group">
-          <label>{{ t('dialogue.sourceUrl') }}</label>
+          <label>{{ t('dialogue.sourceUrl') }} *</label>
           <input
             v-model.trim="form.source_url"
             type="url"
@@ -44,16 +31,6 @@
             required
             @blur="syncSourceModelAuthor"
           />
-          <p class="field-help">{{ t('dialogue.sourceUrlHelp') }}</p>
-          <a
-            v-if="isExternalUrlValid"
-            class="source-preview-link"
-            :href="form.source_url"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {{ t('dialogue.openExternal') }} ↗
-          </a>
         </div>
 
         <div class="form-group">
@@ -99,8 +76,8 @@
 
       </div>
 
-      <!-- Step 1: Dialogue text -->
-      <div v-if="currentStep === 1">
+      <!-- Kept for a future return of manual dialogue editing. -->
+      <div v-if="showAdvancedDialogueFields" class="advanced-dialogue-fields">
         <div class="dialogue-text-header">
           <div>
             <h2 class="step-title">{{ t('dialogue.step2Title') }}</h2>
@@ -152,16 +129,16 @@
             </div>
             <p v-else class="empty-speakers">{{ t('dialogue.noSpeakers') }}</p>
 
-            <form class="speaker-add-form" @submit.prevent="addSpeaker">
+            <div class="speaker-add-form">
               <input
                 v-model="speakerDraft"
                 type="text"
                 :placeholder="t('dialogue.speakerNamePlaceholder')"
               />
-              <button type="submit" class="btn btn-primary btn-sm" :disabled="!speakerDraft.trim()">
+              <button type="button" class="btn btn-primary btn-sm" :disabled="!speakerDraft.trim()" @click="addSpeaker">
                 + {{ t('dialogue.addSpeaker') }}
               </button>
-            </form>
+            </div>
           </aside>
         </div>
         <div v-if="!form.source_url && !form.text.trim()" class="alert alert-info dialogue-step-error">
@@ -170,8 +147,8 @@
         <div v-if="textStepError" class="alert alert-error dialogue-step-error">{{ textStepError }}</div>
       </div>
 
-      <!-- Step 2: Extras -->
-      <div v-if="currentStep === 2">
+      <!-- Kept together with the hidden manual dialogue editor. -->
+      <div v-if="showAdvancedDialogueFields" class="advanced-dialogue-fields">
         <h2 class="step-title">{{ t('dialogue.step3Title') }}</h2>
 
         <div class="form-group">
@@ -233,7 +210,19 @@
         <div v-if="error" class="alert alert-error">{{ error }}</div>
       </div>
 
-    </div>
+      <div v-if="error" class="alert alert-error form-error">{{ error }}</div>
+
+      <footer class="form-actions">
+        <button class="btn btn-primary" type="submit" :disabled="submitting || !canSubmit">
+          {{ submitting
+            ? t('common.loading')
+            : (auth.isStaff && isEditing ? t('common.save') : t('dialogue.submitModerator')) }}
+        </button>
+        <button class="btn btn-outline" type="button" :disabled="submitting" @click="cancelEditing">
+          {{ t('common.cancel') }}
+        </button>
+      </footer>
+    </form>
 
     <div v-if="showAuthorModal" class="modal-backdrop" @click.self="closeAuthorModal">
       <form class="modal-panel" @submit.prevent="saveAuthor">
@@ -289,34 +278,6 @@
       </form>
     </div>
 
-    <!-- Navigation -->
-    <div class="wizard-nav">
-      <button v-if="currentStep > 0" class="btn btn-outline" @click="currentStep--">
-        ← {{ t('common.back') }}
-      </button>
-      <div class="nav-right">
-        <button class="btn btn-outline" type="button" :disabled="submitting" @click="cancelEditing">
-          {{ t('common.cancel') }}
-        </button>
-        <button
-          v-if="currentStep < steps.length - 1"
-          class="btn btn-primary"
-          :disabled="!canProceed"
-          @click="nextStep"
-        >
-          {{ t('dialogue.next') }} →
-        </button>
-        <template v-else>
-          <button
-            class="btn btn-primary"
-            :disabled="submitting || !canSubmit"
-            @click="submit(auth.isStaff && isEditing ? false : true)"
-          >
-            {{ submitting ? t('common.loading') : (auth.isStaff && isEditing ? t('common.save') : t('dialogue.submitModerator')) }}
-          </button>
-        </template>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -333,7 +294,8 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
-const currentStep = ref(0)
+// Keep the complete manual editor and extras ready for a later product decision.
+const showAdvancedDialogueFields = false
 const submitting = ref(false)
 const error = ref('')
 const textStepError = ref('')
@@ -348,7 +310,6 @@ const removedIllustrationIds = ref([])
 const newIllustrations = ref([])
 const pendingInlineImages = ref([])
 const speakerDraft = ref('')
-const originalStatus = ref('draft')
 
 const importSources = [
   { name: 'ChatGPT', short: 'CG' },
@@ -369,12 +330,6 @@ const authorDraft = ref({
   version: '',
   description: '',
 })
-
-const steps = computed(() => [
-  t('dialogue.step1'),
-  t('dialogue.step2'),
-  t('dialogue.step3'),
-])
 
 const isEditing = computed(() => route.name === 'edit-dialogue')
 
@@ -417,13 +372,6 @@ const dialogueSpeakers = computed(() => {
   return names
 })
 
-const canProceed = computed(() => {
-  if (currentStep.value === 0) {
-    return basicContextValid.value && sourceUrlAcceptable.value
-  }
-  return true
-})
-
 const basicContextValid = computed(() => {
   return form.value.section && form.value.title.trim() && authors.value.length > 0
 })
@@ -438,12 +386,13 @@ const isExternalUrlValid = computed(() => {
   }
 })
 
-const sourceUrlAcceptable = computed(() => !form.value.source_url || isExternalUrlValid.value)
-
 const canSubmit = computed(() => {
-  return basicContextValid.value
-    && sourceUrlAcceptable.value
-    && (isExternalUrlValid.value || form.value.text.trim())
+  if (!basicContextValid.value) return false
+  if (showAdvancedDialogueFields) {
+    const sourceUrlAcceptable = !form.value.source_url || isExternalUrlValid.value
+    return sourceUrlAcceptable && (isExternalUrlValid.value || form.value.text.trim())
+  }
+  return isExternalUrlValid.value
 })
 
 onMounted(async () => {
@@ -470,16 +419,6 @@ function applySectionFromQuery() {
   if (selected) {
     form.value.section = selected.id
   }
-}
-
-function nextStep() {
-  if (currentStep.value === 1 && !validateTextStep()) return
-  textStepError.value = ''
-  if (canProceed.value) currentStep.value++
-}
-
-function validateTextStep() {
-  return true
 }
 
 async function submit(submitForReview) {
@@ -532,7 +471,6 @@ async function submit(submitForReview) {
 
 async function loadDialogue() {
   const { data } = await api.get(`/dialogues/${route.params.id}/`)
-  originalStatus.value = data.status || 'draft'
   form.value = {
     section: data.section,
     title: data.title || '',
@@ -831,72 +769,14 @@ watch(() => form.value.source_url, () => {
 </script>
 
 <style scoped>
-.steps {
-  display: flex;
-  align-items: center;
-  margin-bottom: 2rem;
-  position: relative;
-}
-
-.step-line {
-  position: absolute;
-  top: 18px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--color-border);
-  z-index: 0;
-}
-
-.step {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.4rem;
-  flex: 1;
-  z-index: 1;
-}
-
-.step-circle {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: 2px solid var(--color-border);
-  background: var(--color-surface);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 600;
-  font-size: 0.875rem;
-  color: var(--color-text-muted);
-  transition: all 0.2s;
-}
-
-.step.active .step-circle {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
-  color: white;
-}
-
-.step.done .step-circle {
-  border-color: var(--color-success);
-  background: var(--color-success);
-  color: white;
-}
-
-.step-label {
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
-  font-weight: 500;
-}
-
-.step.active .step-label {
-  color: var(--color-primary);
-}
-
-.wizard-body {
-  min-height: 400px;
+.dialogue-form {
   margin-bottom: 1.5rem;
+}
+
+.advanced-dialogue-fields {
+  border-top: 1px solid var(--color-border);
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
 }
 
 .step-title {
@@ -1060,27 +940,20 @@ watch(() => form.value.source_url, () => {
   margin: 0.35rem 0 0;
 }
 
-.source-preview-link {
-  color: var(--color-primary);
-  display: inline-block;
-  font-size: 0.85rem;
-  margin-top: 0.45rem;
-  overflow-wrap: anywhere;
-}
-
 .import-source-hint {
   margin-bottom: 0.85rem;
 }
 
-.wizard-nav {
-  display: flex;
-  justify-content: space-between;
+.form-actions {
   align-items: center;
-}
-
-.nav-right {
   display: flex;
   gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1.5rem;
+}
+
+.form-error {
+  margin-top: 1rem;
 }
 
 .author-list {
@@ -1288,13 +1161,8 @@ watch(() => form.value.source_url, () => {
     grid-template-columns: 1fr;
   }
 
-  .wizard-nav {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .nav-right {
+  .form-actions {
+    flex-wrap: wrap;
     justify-content: flex-end;
   }
 

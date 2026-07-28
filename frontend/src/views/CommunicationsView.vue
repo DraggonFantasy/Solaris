@@ -10,31 +10,8 @@
       </RouterLink>
     </header>
 
-    <section class="context-card card">
-      <div>
-        <h2>{{ t('communications.contextTitle') }}</h2>
-        <p>{{ t('communications.contextText', { count: contextCount }) }}</p>
-        <p v-if="contextNotice" class="context-notice">{{ contextNotice }}</p>
-      </div>
-      <div class="context-actions">
-        <button class="btn btn-outline" type="button" :disabled="contextLoading" @click="copySolarisContext">
-          {{ contextLoading ? t('common.loading') : t('communications.copyContext') }}
-        </button>
-        <a class="btn btn-outline" href="https://gemini.google.com/app" target="_blank" rel="noopener noreferrer">Gemini ↗</a>
-        <a class="btn btn-outline" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">ChatGPT ↗</a>
-        <a class="btn btn-outline" href="https://claude.ai/new" target="_blank" rel="noopener noreferrer">Claude ↗</a>
-      </div>
-    </section>
-
     <div v-if="loading" class="text-muted">{{ t('common.loading') }}</div>
-    <div v-else-if="!auth.isStaff" class="author-communications card">
-      <h2>{{ t('communications.authorTitle') }}</h2>
-      <p>{{ t('communications.authorText') }}</p>
-      <RouterLink class="btn btn-outline" :to="{ name: 'my-dialogues' }">
-        {{ t('dialogue.myDialogues') }}
-      </RouterLink>
-    </div>
-    <div v-else>
+    <div v-else-if="auth.isStaff">
       <div v-if="error" class="alert alert-error">{{ error }}</div>
 
       <section class="queue-section">
@@ -259,10 +236,6 @@ const savingKey = ref('')
 const error = ref('')
 const changesDialogue = ref(null)
 const changesNote = ref('')
-const contextMarkdown = ref('')
-const contextCount = ref(0)
-const contextLoading = ref(false)
-const contextNotice = ref('')
 
 const pendingLiterature = computed(() => {
   return pendingDialogues.value.filter((dialogue) => dialogue.recommended_literature?.trim())
@@ -283,42 +256,7 @@ onMounted(async () => {
   } else {
     await loadQueues()
   }
-  await loadContext()
 })
-
-async function loadContext() {
-  contextLoading.value = true
-  try {
-    const { data } = await api.get('/dialogues/context/')
-    contextMarkdown.value = data.markdown || ''
-    contextCount.value = data.dialogue_count || 0
-  } catch {
-    contextNotice.value = t('common.error')
-  } finally {
-    contextLoading.value = false
-  }
-}
-
-async function copySolarisContext() {
-  contextNotice.value = ''
-  if (!contextMarkdown.value) await loadContext()
-  try {
-    await navigator.clipboard.writeText(contextMarkdown.value)
-    contextNotice.value = t('communications.contextCopied')
-  } catch {
-    const textarea = document.createElement('textarea')
-    textarea.value = contextMarkdown.value
-    textarea.style.position = 'fixed'
-    textarea.style.opacity = '0'
-    document.body.appendChild(textarea)
-    textarea.select()
-    const copied = document.execCommand('copy')
-    textarea.remove()
-    contextNotice.value = copied
-      ? t('communications.contextCopied')
-      : t('communications.contextCopyError')
-  }
-}
 
 async function loadQueues() {
   loading.value = true
@@ -408,46 +346,6 @@ function formatDate(iso) {
 
 .communications-header .page-title {
   margin-bottom: 1rem;
-}
-
-.context-card {
-  align-items: center;
-  display: flex;
-  gap: 1.5rem;
-  justify-content: space-between;
-  margin-bottom: 1.5rem;
-}
-
-.context-card h2,
-.author-communications h2 {
-  color: var(--color-primary);
-  font-family: var(--font-serif);
-  font-size: 1.15rem;
-  margin: 0 0 0.45rem;
-}
-
-.context-card p,
-.author-communications p {
-  color: var(--color-text-muted);
-  line-height: 1.55;
-  margin: 0;
-}
-
-.context-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  justify-content: flex-end;
-}
-
-.context-notice {
-  color: var(--color-primary) !important;
-  font-size: 0.82rem;
-  margin-top: 0.35rem !important;
-}
-
-.author-communications .btn {
-  margin-top: 1rem;
 }
 
 .illustration-request-main {
@@ -599,14 +497,9 @@ function formatDate(iso) {
 }
 
 @media (max-width: 720px) {
-  .communications-header,
-  .context-card {
+  .communications-header {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .context-actions {
-    justify-content: flex-start;
   }
 }
 
