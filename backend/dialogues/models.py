@@ -95,9 +95,17 @@ class DialogueIllustration(models.Model):
     image = models.ImageField(upload_to='illustrations/')
     caption = models.TextField(blank=True)
     order = models.PositiveIntegerField(default=0)
+    source_key = models.CharField(max_length=255, blank=True, db_index=True)
 
     class Meta:
         ordering = ['order']
+        constraints = [
+            models.UniqueConstraint(
+                fields=('dialogue', 'source_key'),
+                condition=~models.Q(source_key=''),
+                name='unique_dialogue_illustration_source',
+            ),
+        ]
 
     def __str__(self):
         return f'Illustration for "{self.dialogue.title}"'

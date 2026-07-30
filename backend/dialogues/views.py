@@ -1,6 +1,8 @@
-from django.db import models
+import logging
 import re
 from urllib.parse import urlparse
+
+from django.db import models
 from rest_framework import exceptions, generics, parsers, permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -15,6 +17,14 @@ from .serializers import (
     CommentReviewSerializer, DialogueIllustrationSerializer, DialogueInlineImageSerializer,
     DialogueOrderSerializer,
 )
+from .gemini_illustrations import (
+    canonical_gemini_share_url,
+    import_gemini_illustrations,
+    is_gemini_share_url,
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 class IsAuthorOrReadOnly(permissions.BasePermission):
@@ -43,6 +53,69 @@ def can_edit_dialogue(user, dialogue):
     return (
         dialogue.human_author == user
         and dialogue.status in IsAuthorEditableOrStaff.editable_statuses
+    )
+
+
+def maybe_import_gemini_illustrations(
+    dialogue,
+    user,
+    *,
+    previous_status=None,
+    previous_source_url=None,
+):
+    import_statuses = {
+        Dialogue.STATUS_SUBMITTED,
+        Dialogue.STATUS_PUBLISHED,
+    }
+    if (
+        dialogue.status not in import_statuses
+        or not is_gemini_share_url(dialogue.source_url)
+    ):
+        return
+
+    source_changed = (
+        previous_source_url is not None
+        and previous_source_url != dialogue.source_url
+    )
+    entered_import_status = previous_status not in import_statuses
+    retry_before_publication = (
+        previous_status == Dialogue.STATUS_SUBMITTED
+        and dialogue.status == Dialogue.STATUS_PUBLISHED
+        and not dialogue.illustrations.exists()
+    )
+    if not (source_changed or entered_import_status or retry_before_publication):
+        return
+
+    try:
+        result = import_gemini_illustrations(dialogue)
+    except Exception as exc:
+        logger.exception(
+            "Automatic Gemini illustration import failed for dialogue %s.",
+            dialogue.pk,
+        )
+        AuditLog.objects.create(
+            user=user,
+            action="import_gemini_illustrations_failed",
+            object_type="Dialogue",
+            object_id=str(dialogue.id),
+            details=str(exc)[:1000],
+        )
+        return
+
+    action = (
+        "import_gemini_illustrations_failed"
+        if result.failed and not result.imported
+        else "import_gemini_illustrations"
+    )
+    AuditLog.objects.create(
+        user=user,
+        action=action,
+        object_type="Dialogue",
+        object_id=str(dialogue.id),
+        details=(
+            f"Found: {result.found}; imported: {result.imported}; "
+            f"duplicates: {result.skipped_duplicates}; failed: {result.failed}"
+        ),
     )
 
 
@@ -239,6 +312,7 @@ class DialogueListView(generics.ListCreateAPIView):
             object_type='Dialogue', object_id=str(dialogue.id),
             details=f'Created dialogue: {dialogue.title}'
         )
+        maybe_import_gemini_illustrations(dialogue, self.request.user)
 
 
 class DialogueDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -262,10 +336,18 @@ class DialogueDetailView(generics.RetrieveUpdateDestroyAPIView):
         return [permissions.IsAuthenticated(), IsAuthorEditableOrStaff()]
 
     def perform_update(self, serializer):
+        previous_status = serializer.instance.status
+        previous_source_url = serializer.instance.source_url
         dialogue = serializer.save()
         AuditLog.objects.create(
             user=self.request.user, action='update_dialogue',
             object_type='Dialogue', object_id=str(dialogue.id)
+        )
+        maybe_import_gemini_illustrations(
+            dialogue,
+            self.request.user,
+            previous_status=previous_status,
+            previous_source_url=previous_source_url,
         )
 
     def perform_destroy(self, instance):
@@ -309,6 +391,8 @@ class DialogueModerateView(generics.UpdateAPIView):
         return self.partial_update(request, *args, **kwargs)
 
     def perform_update(self, serializer):
+        previous_status = serializer.instance.status
+        previous_source_url = serializer.instance.source_url
         dialogue = serializer.save()
         AuditLog.objects.create(
             user=self.request.user,
@@ -316,6 +400,12 @@ class DialogueModerateView(generics.UpdateAPIView):
             object_type='Dialogue',
             object_id=str(dialogue.id),
             details=f'Status changed to {dialogue.status}'
+        )
+        maybe_import_gemini_illustrations(
+            dialogue,
+            self.request.user,
+            previous_status=previous_status,
+            previous_source_url=previous_source_url,
         )
 
 
@@ -353,6 +443,7 @@ class DialogueImportShareView(APIView):
         'claude.ai',
         'gemini.google.com',
         'share.google',
+        'g.co',
     }
 
     def host_is_allowed(self, hostname):
@@ -370,6 +461,8 @@ class DialogueImportShareView(APIView):
         parsed = urlparse(url)
         if parsed.scheme not in {'http', 'https'} or not self.host_is_allowed(parsed.hostname):
             return Response({'detail': 'Unsupported share URL.'}, status=status.HTTP_400_BAD_REQUEST)
+        if (parsed.hostname or '').lower().rstrip('.') == 'g.co' and not is_gemini_share_url(url):
+            return Response({'detail': 'Unsupported share URL.'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             from llm_shared_chat import extract_share
@@ -380,7 +473,8 @@ class DialogueImportShareView(APIView):
             )
 
         try:
-            conversation = extract_share(url)
+            extract_url = canonical_gemini_share_url(url) if is_gemini_share_url(url) else url
+            conversation = extract_share(extract_url)
         except Exception as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 

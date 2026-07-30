@@ -724,12 +724,14 @@ async function handleImport(source) {
 }
 
 function sourceProvider(urlValue) {
-  let hostname = ''
+  let parsedUrl
   try {
-    hostname = new URL(urlValue).hostname.toLowerCase()
+    parsedUrl = new URL(urlValue)
   } catch {
     return ''
   }
+  const hostname = parsedUrl.hostname.toLowerCase()
+  if (hostname === 'g.co' && parsedUrl.pathname.startsWith('/gemini/share/')) return 'Gemini'
   if (hostname === 'share.google' || hostname.endsWith('.share.google') || hostname === 'gemini.google.com' || hostname.endsWith('.gemini.google.com')) return 'Gemini'
   if (hostname === 'chatgpt.com' || hostname.endsWith('.chatgpt.com') || hostname === 'chat.openai.com') return 'ChatGPT'
   if (hostname === 'claude.ai' || hostname.endsWith('.claude.ai')) return 'Claude'

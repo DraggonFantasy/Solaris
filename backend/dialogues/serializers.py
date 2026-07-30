@@ -22,7 +22,11 @@ AI_PROVIDERS = (
 
 
 def infer_ai_provider(url):
-    hostname = (urlparse(url or '').hostname or '').lower().rstrip('.')
+    parsed = urlparse(url or '')
+    hostname = (parsed.hostname or '').lower().rstrip('.')
+    path_parts = [part for part in parsed.path.split('/') if part]
+    if hostname == 'g.co' and len(path_parts) >= 3 and path_parts[:2] == ['gemini', 'share']:
+        return 'Gemini'
     for domain, provider in AI_PROVIDERS:
         if hostname == domain or hostname.endswith(f'.{domain}'):
             return provider

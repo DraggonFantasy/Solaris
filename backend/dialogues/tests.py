@@ -1,11 +1,27 @@
-from django.contrib.auth import get_user_model
-from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import override_settings
-from rest_framework.test import APITestCase
+import hashlib
+from io import BytesIO
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from .models import Dialogue, DialogueInlineImage, Section
+from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import SimpleTestCase, override_settings
+from PIL import Image
+from rest_framework.test import APITestCase
+
+from .gemini_illustrations import (
+    DownloadedImage,
+    GeminiImageAsset,
+    GeminiIllustrationImportResult,
+    HttpResponse,
+    canonical_gemini_share_url,
+    download_gemini_image,
+    extract_gemini_image_assets,
+    import_gemini_illustrations,
+    is_gemini_share_url,
+)
+from .models import AuditLog, Dialogue, DialogueIllustration, DialogueInlineImage, Section
 
 
 class DialogueListViewTests(APITestCase):
@@ -111,6 +127,240 @@ class DialogueInlineImageTests(APITestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertFalse(DialogueInlineImage.objects.exists())
+
+
+class GeminiIllustrationExtractionTests(SimpleTestCase):
+    def asset_record(
+        self,
+        filename,
+        url,
+        *,
+        kind,
+        content_type,
+        width,
+        height,
+    ):
+        return [
+            None,
+            1,
+            filename,
+            url,
+            None,
+            "asset-token",
+            None,
+            None,
+            kind,
+            [1_700_000_000, 0],
+            None,
+            content_type,
+            None,
+            None,
+            None,
+            [width, height, 1000],
+        ]
+
+    def test_extracts_uploaded_image_and_largest_generated_variant(self):
+        uploaded = self.asset_record(
+            "prompt.jpg",
+            "https://lh3.googleusercontent.com/uploaded",
+            kind=1,
+            content_type="image/jpeg",
+            width=1000,
+            height=600,
+        )
+        generated_small = self.asset_record(
+            "generated-small.png",
+            "https://lh3.googleusercontent.com/generated-small=mp2",
+            kind=2,
+            content_type="image/png",
+            width=1364,
+            height=768,
+        )
+        generated_large = self.asset_record(
+            "generated-large.png",
+            "https://lh3.googleusercontent.com/generated-large=mp2",
+            kind=2,
+            content_type="image/png",
+            width=2728,
+            height=1536,
+        )
+        generated_jpeg = self.asset_record(
+            "generated.jpeg",
+            "https://lh3.googleusercontent.com/generated-jpeg=mp2",
+            kind=2,
+            content_type="image/jpeg",
+            width=1364,
+            height=768,
+        )
+        payload = [[
+            None,
+            [[
+                None,
+                None,
+                [["Create a visual explanation", [[uploaded]]]],
+                [[[generated_small, generated_large, generated_jpeg]]],
+            ]],
+        ]]
+
+        assets = extract_gemini_image_assets(payload)
+
+        self.assertEqual(len(assets), 2)
+        self.assertEqual(assets[0].kind, "uploaded")
+        self.assertEqual(assets[0].url, uploaded[3])
+        self.assertEqual(assets[1].kind, "generated")
+        self.assertEqual(assets[1].url, generated_large[3])
+        self.assertIn("Create a visual explanation", assets[1].caption)
+
+    def test_ignores_images_from_untrusted_hosts(self):
+        external = self.asset_record(
+            "external.png",
+            "https://example.com/image.png",
+            kind=1,
+            content_type="image/png",
+            width=100,
+            height=100,
+        )
+        payload = [[None, [[None, None, [["Prompt", [external]]], []]]]]
+
+        self.assertEqual(extract_gemini_image_assets(payload), [])
+
+    def test_gco_short_link_is_recognized_and_canonicalized(self):
+        short_url = "https://g.co/gemini/share/abc123"
+
+        self.assertTrue(is_gemini_share_url(short_url))
+        self.assertEqual(
+            canonical_gemini_share_url(short_url),
+            "https://gemini.google.com/share/abc123",
+        )
+
+    def test_download_uses_original_resolution_url(self):
+        output = BytesIO()
+        Image.new("RGB", (4, 3), color=(12, 34, 56)).save(
+            output,
+            format="PNG",
+        )
+        requested_urls = []
+
+        class Client:
+            def request(self, url, **kwargs):
+                requested_urls.append(url)
+                return HttpResponse(
+                    body=output.getvalue(),
+                    content_type="image/png",
+                    final_url=url,
+                )
+
+        asset = GeminiImageAsset(
+            url="https://lh3.googleusercontent.com/generated=mp2",
+            filename="generated.png",
+            declared_type="image/png",
+            width=1024,
+            height=768,
+            kind="generated",
+            turn_index=0,
+            position=0,
+            caption="Illustration",
+        )
+
+        downloaded = download_gemini_image(
+            asset,
+            client=Client(),
+            source_url="https://gemini.google.com/share/abc123",
+        )
+
+        self.assertEqual(
+            requested_urls,
+            ["https://lh3.googleusercontent.com/generated=s0"],
+        )
+        self.assertEqual(downloaded.extension, "png")
+
+
+class GeminiIllustrationImportTests(APITestCase):
+    def setUp(self):
+        self.media_directory = TemporaryDirectory()
+        self.settings_override = override_settings(
+            MEDIA_ROOT=self.media_directory.name
+        )
+        self.settings_override.enable()
+        self.author = get_user_model().objects.create_user(
+            username="gemini-author",
+            password="password",
+        )
+        self.section = Section.objects.create(
+            name="Gemini",
+            slug="gemini-import",
+        )
+        self.dialogue = Dialogue.objects.create(
+            title="Gemini images",
+            section=self.section,
+            source_url="https://gemini.google.com/share/test-share",
+            human_author=self.author,
+            status=Dialogue.STATUS_SUBMITTED,
+        )
+
+    def tearDown(self):
+        self.settings_override.disable()
+        self.media_directory.cleanup()
+
+    def png_bytes(self):
+        output = BytesIO()
+        Image.new("RGB", (2, 2), color=(12, 34, 56)).save(output, format="PNG")
+        return output.getvalue()
+
+    def test_import_saves_image_and_is_idempotent_by_content(self):
+        record = [
+            None,
+            1,
+            "generated.png",
+            "https://lh3.googleusercontent.com/generated=mp2",
+            None,
+            "asset-token",
+            None,
+            None,
+            2,
+            [1_700_000_000, 0],
+            None,
+            "image/png",
+            None,
+            None,
+            None,
+            [1024, 768, 1000],
+        ]
+        payload = [[None, [[None, None, [["Draw it"]], [[record]]]]]]
+        image_bytes = self.png_bytes()
+        downloaded = DownloadedImage(
+            body=image_bytes,
+            extension="png",
+            digest=hashlib.sha256(image_bytes).hexdigest(),
+        )
+
+        with (
+            patch(
+                "dialogues.gemini_illustrations.fetch_gemini_payload",
+                return_value=(
+                    "test-share",
+                    self.dialogue.source_url,
+                    payload,
+                ),
+            ),
+            patch(
+                "dialogues.gemini_illustrations.download_gemini_image",
+                return_value=downloaded,
+            ) as downloader,
+        ):
+            first = import_gemini_illustrations(self.dialogue)
+            second = import_gemini_illustrations(self.dialogue)
+
+        self.assertEqual(first.imported, 1)
+        self.assertEqual(second.imported, 0)
+        self.assertEqual(second.skipped_duplicates, 1)
+        illustration = DialogueIllustration.objects.get(dialogue=self.dialogue)
+        self.assertIn("Draw it", illustration.caption)
+        self.assertEqual(
+            illustration.source_key,
+            "gemini:test-share:0:generated:0",
+        )
+        downloader.assert_called_once()
 
 
 class DialogueModerationTests(APITestCase):
@@ -282,6 +532,98 @@ class ExternalDialogueLinkTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['service'], 'gemini')
         self.assertIn('Question', response.data['markdown'])
+
+    def test_gco_gemini_link_is_canonicalized_for_import(self):
+        imported_urls = []
+
+        def extract_share(url):
+            imported_urls.append(url)
+            return {
+                'service': 'gemini',
+                'title': 'Imported title',
+                'messages': [
+                    {'role': 'user', 'content': 'Question'},
+                    {'role': 'assistant', 'content': 'Answer'},
+                ],
+            }
+
+        extractor = SimpleNamespace(extract_share=extract_share)
+        with patch.dict('sys.modules', {'llm_shared_chat': extractor}):
+            response = self.client.post('/api/dialogues/import-share/', {
+                'url': 'https://g.co/gemini/share/abc123',
+            }, format='json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            imported_urls,
+            ['https://gemini.google.com/share/abc123'],
+        )
+
+    def test_gco_gemini_link_sets_gemini_as_source_model(self):
+        response = self.client.post('/api/dialogues/', {
+            'title': 'Gemini short link',
+            'section': self.section.id,
+            'source_url': 'https://g.co/gemini/share/abc123',
+            'status': Dialogue.STATUS_DRAFT,
+        }, format='json')
+
+        self.assertEqual(response.status_code, 201)
+        dialogue = Dialogue.objects.get(pk=response.data['id'])
+        self.assertEqual(dialogue.llm_name, 'Gemini')
+
+    def test_gemini_illustrations_are_imported_when_draft_is_submitted(self):
+        import_result = GeminiIllustrationImportResult(
+            found=2,
+            imported=2,
+            skipped_duplicates=0,
+            failed=0,
+        )
+        with patch(
+            'dialogues.views.import_gemini_illustrations',
+            return_value=import_result,
+        ) as importer:
+            create_response = self.client.post('/api/dialogues/', {
+                'title': 'Gemini draft',
+                'section': self.section.id,
+                'source_url': 'https://gemini.google.com/share/example',
+                'status': Dialogue.STATUS_DRAFT,
+            }, format='json')
+            submit_response = self.client.patch(
+                f"/api/dialogues/{create_response.data['id']}/",
+                {'status': Dialogue.STATUS_SUBMITTED},
+                format='json',
+            )
+
+        self.assertEqual(create_response.status_code, 201)
+        self.assertEqual(submit_response.status_code, 200)
+        importer.assert_called_once()
+        self.assertTrue(AuditLog.objects.filter(
+            action='import_gemini_illustrations',
+            object_id=str(create_response.data['id']),
+        ).exists())
+
+    def test_gemini_import_failure_does_not_block_submission(self):
+        with (
+            patch(
+                'dialogues.views.import_gemini_illustrations',
+                side_effect=RuntimeError('Temporary Gemini failure'),
+            ),
+            patch('dialogues.views.logger.exception'),
+        ):
+            response = self.client.post('/api/dialogues/', {
+                'title': 'Gemini dialogue',
+                'section': self.section.id,
+                'source_url': 'https://gemini.google.com/share/example',
+                'status': Dialogue.STATUS_SUBMITTED,
+            }, format='json')
+
+        self.assertEqual(response.status_code, 201)
+        dialogue = Dialogue.objects.get(pk=response.data['id'])
+        self.assertEqual(dialogue.status, Dialogue.STATUS_SUBMITTED)
+        self.assertTrue(AuditLog.objects.filter(
+            action='import_gemini_illustrations_failed',
+            object_id=str(dialogue.id),
+        ).exists())
 
 
 class SolarisDialogueContextTests(APITestCase):
