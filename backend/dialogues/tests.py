@@ -224,6 +224,113 @@ class GeminiIllustrationExtractionTests(SimpleTestCase):
 
         self.assertEqual(extract_gemini_image_assets(payload), [])
 
+    def test_extracts_largest_retrieval_preview_once(self):
+        small_preview = (
+            "https://encrypted-tbn3.gstatic.com/images?q=small-preview"
+        )
+        large_preview = (
+            "https://encrypted-tbn3.gstatic.com/images?q=large-preview"
+        )
+        retrieval_group = [
+            [[
+                "https://upload.wikimedia.org/wikipedia/commons/e/e1/"
+                "Flag_of_Ukraine.svg"
+            ], None, 1200, 800, "flag of Ukraine", None, "image-id"],
+            [["https://commons.wikimedia.org/wiki/File:Flag_of_Ukraine.svg"],
+             "commons.wikimedia.org", 5,
+             "https://encrypted-tbn0.gstatic.com/favicon-tbn?q=favicon"],
+            None,
+            [[small_preview], None, 250, 200],
+            None,
+            None,
+            None,
+            [
+                "http://googleusercontent.com/image_collection/"
+                "image_retrieval/result_0",
+                None,
+                "flag of Ukraine",
+                None,
+                None,
+                1,
+            ],
+            None,
+            None,
+            None,
+            None,
+            [[large_preview], None, 678, 452],
+        ]
+        payload = [[
+            None,
+            [[
+                None,
+                None,
+                [["Прапор України"]],
+                [["Response", retrieval_group], [retrieval_group]],
+            ]],
+        ]]
+
+        assets = extract_gemini_image_assets(payload)
+
+        self.assertEqual(len(assets), 1)
+        self.assertEqual(assets[0].kind, "retrieved")
+        self.assertEqual(assets[0].url, large_preview)
+        self.assertEqual((assets[0].width, assets[0].height), (678, 452))
+        self.assertIn("flag of Ukraine", assets[0].caption)
+
+    def test_uses_inline_caption_for_image_agent_retrieval(self):
+        preview = "https://encrypted-tbn0.gstatic.com/images?q=coat-of-arms"
+        retrieval_group = [
+            [[
+                "https://upload.wikimedia.org/wikipedia/commons/c/cf/"
+                "Coat_of_Arms_of_Ukraine.svg"
+            ], None, 660, 922],
+            None,
+            None,
+            [[preview], None, 267, 374],
+            None,
+            None,
+            None,
+            [
+                "http://googleusercontent.com/image_agent_tag_12345",
+                None,
+                "Coat of arms of Ukraine",
+                None,
+                None,
+                1,
+            ],
+        ]
+        response = (
+            '<Image alt="Герб України" caption="Малий Державний Герб України" '
+            'src="image_agent_tag_12345"/>'
+        )
+        payload = [[
+            None,
+            [[None, None, [["Покажи герб"]], [[response], retrieval_group]]],
+        ]]
+
+        assets = extract_gemini_image_assets(payload)
+
+        self.assertEqual(len(assets), 1)
+        self.assertEqual(assets[0].url, preview)
+        self.assertIn("Малий Державний Герб України", assets[0].caption)
+
+    def test_retrieval_does_not_download_arbitrary_external_host(self):
+        retrieval_group = [
+            [["https://example.com/image.png"], None, 1000, 800],
+            [
+                "http://googleusercontent.com/image_collection/"
+                "image_retrieval/result_0",
+                None,
+                "External image",
+            ],
+        ]
+        payload = [[
+            None,
+            [[None, None, [["Prompt"]], [retrieval_group]]],
+        ]]
+
+        self.assertEqual(extract_gemini_image_assets(payload), [])
+
     def test_gco_short_link_is_recognized_and_canonicalized(self):
         short_url = "https://g.co/gemini/share/abc123"
 
@@ -272,6 +379,45 @@ class GeminiIllustrationExtractionTests(SimpleTestCase):
             requested_urls,
             ["https://lh3.googleusercontent.com/generated=s0"],
         )
+        self.assertEqual(downloaded.extension, "png")
+
+    def test_download_keeps_retrieval_preview_url_unchanged(self):
+        output = BytesIO()
+        Image.new("RGB", (4, 3), color=(12, 34, 56)).save(
+            output,
+            format="PNG",
+        )
+        preview_url = "https://encrypted-tbn0.gstatic.com/images?q=preview"
+        requested_urls = []
+
+        class Client:
+            def request(self, url, **kwargs):
+                requested_urls.append(url)
+                return HttpResponse(
+                    body=output.getvalue(),
+                    content_type="image/png",
+                    final_url=url,
+                )
+
+        asset = GeminiImageAsset(
+            url=preview_url,
+            filename="retrieved.img",
+            declared_type="",
+            width=400,
+            height=300,
+            kind="retrieved",
+            turn_index=0,
+            position=0,
+            caption="Retrieved image",
+        )
+
+        downloaded = download_gemini_image(
+            asset,
+            client=Client(),
+            source_url="https://gemini.google.com/share/abc123",
+        )
+
+        self.assertEqual(requested_urls, [preview_url])
         self.assertEqual(downloaded.extension, "png")
 
 

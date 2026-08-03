@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import logging
 import re
@@ -41,6 +42,18 @@ MAX_IMAGE_BYTES = 20 * 1024 * 1024
 MAX_TOTAL_IMAGE_BYTES = 60 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
 MAX_IMAGES = 20
+RETRIEVAL_MARKER_PREFIXES = (
+    "http://googleusercontent.com/image_collection/image_retrieval/",
+    "https://googleusercontent.com/image_collection/image_retrieval/",
+    "http://googleusercontent.com/image_agent_tag_",
+    "https://googleusercontent.com/image_agent_tag_",
+)
+RETRIEVAL_PREVIEW_HOST_RE = re.compile(r"^encrypted-tbn\d+\.gstatic\.com$")
+IMAGE_TAG_RE = re.compile(r"<Image\b(?P<attributes>[^>]*)>", re.IGNORECASE)
+IMAGE_TAG_ATTRIBUTE_RE = re.compile(
+    r'\b(?P<name>src|caption|alt)="(?P<value>[^"]*)"',
+    re.IGNORECASE,
+)
 
 
 class GeminiIllustrationImportError(RuntimeError):
@@ -301,7 +314,7 @@ def _normalize_prompt_text(prompt: Any) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _image_host_is_allowed(value: str) -> bool:
+def _gemini_image_host_is_allowed(value: str) -> bool:
     parsed = urllib.parse.urlparse(value)
     hostname = (parsed.hostname or "").lower().rstrip(".")
     return (
@@ -310,6 +323,35 @@ def _image_host_is_allowed(value: str) -> bool:
             hostname == "googleusercontent.com"
             or hostname.endswith(".googleusercontent.com")
         )
+    )
+
+
+def _retrieval_preview_url_is_allowed(value: str) -> bool:
+    parsed = urllib.parse.urlparse(value)
+    hostname = (parsed.hostname or "").lower().rstrip(".")
+    return (
+        parsed.scheme == "https"
+        and bool(RETRIEVAL_PREVIEW_HOST_RE.fullmatch(hostname))
+        and parsed.path == "/images"
+    )
+
+
+def _wikimedia_raster_url_is_allowed(value: str) -> bool:
+    parsed = urllib.parse.urlparse(value)
+    hostname = (parsed.hostname or "").lower().rstrip(".")
+    suffix = Path(urllib.parse.unquote(parsed.path)).suffix.lower()
+    return (
+        parsed.scheme == "https"
+        and hostname == "upload.wikimedia.org"
+        and suffix in {".jpg", ".jpeg", ".png", ".webp"}
+    )
+
+
+def _download_image_host_is_allowed(value: str) -> bool:
+    return (
+        _gemini_image_host_is_allowed(value)
+        or _retrieval_preview_url_is_allowed(value)
+        or _wikimedia_raster_url_is_allowed(value)
     )
 
 
@@ -330,7 +372,7 @@ def _asset_from_record(
     if (
         not isinstance(filename, str)
         or not isinstance(url, str)
-        or not _image_host_is_allowed(url)
+        or not _gemini_image_host_is_allowed(url)
         or declared_type not in ALLOWED_IMAGE_MIME_TYPES
         or not isinstance(dimensions, list)
         or len(dimensions) < 2
@@ -353,12 +395,141 @@ def _asset_from_record(
     )
 
 
-def _caption_for_asset(kind: str, turn_index: int, prompt_text: str) -> str:
-    prefix = (
-        "Зображення користувача"
-        if kind == "uploaded"
-        else "Ілюстрація Gemini"
+def _iter_strings(value: Any):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, list):
+        for child in value:
+            yield from _iter_strings(child)
+    elif isinstance(value, dict):
+        for child in value.values():
+            yield from _iter_strings(child)
+
+
+def _inline_image_labels(value: Any) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for text in _iter_strings(value):
+        for tag_match in IMAGE_TAG_RE.finditer(text):
+            attributes = {
+                match.group("name").lower(): html.unescape(match.group("value"))
+                for match in IMAGE_TAG_ATTRIBUTE_RE.finditer(
+                    tag_match.group("attributes")
+                )
+            }
+            source = attributes.get("src", "").strip()
+            label = (attributes.get("caption") or attributes.get("alt") or "").strip()
+            if source and label:
+                labels[source] = label
+    return labels
+
+
+def _retrieval_marker(group: list[Any]) -> list[Any] | None:
+    for child in group:
+        if (
+            isinstance(child, list)
+            and child
+            and isinstance(child[0], str)
+            and child[0].startswith(RETRIEVAL_MARKER_PREFIXES)
+        ):
+            return child
+    return None
+
+
+def _external_image_descriptor(
+    value: Any,
+) -> tuple[str, int, int, str] | None:
+    if (
+        not isinstance(value, list)
+        or len(value) < 4
+        or not isinstance(value[0], list)
+        or not value[0]
+        or not isinstance(value[0][0], str)
+        or type(value[2]) is not int
+        or type(value[3]) is not int
+        or value[2] <= 0
+        or value[3] <= 0
+    ):
+        return None
+    label = (
+        value[4].strip()
+        if len(value) > 4 and isinstance(value[4], str)
+        else ""
     )
+    return value[0][0], value[2], value[3], label
+
+
+def _marker_label(marker: list[Any], labels: dict[str, str]) -> str:
+    marker_url = marker[0]
+    marker_name = urllib.parse.urlparse(marker_url).path.lstrip("/")
+    short_name = marker_name.rsplit("/", 1)[-1]
+    for key in (marker_url, marker_name, short_name):
+        if key in labels:
+            return labels[key]
+    if len(marker) > 2 and isinstance(marker[2], str):
+        return marker[2].strip()
+    return ""
+
+
+def _retrieved_asset_from_group(
+    group: list[Any],
+    *,
+    turn_index: int,
+    position: int,
+    prompt_text: str,
+    inline_labels: dict[str, str],
+) -> GeminiImageAsset | None:
+    marker = _retrieval_marker(group)
+    if marker is None:
+        return None
+
+    candidates: list[tuple[str, int, int, str]] = []
+    descriptor_label = ""
+    for child in group:
+        descriptor = _external_image_descriptor(child)
+        if descriptor is None:
+            continue
+        url, _width, _height, label = descriptor
+        descriptor_label = descriptor_label or label
+        if (
+            _retrieval_preview_url_is_allowed(url)
+            or _wikimedia_raster_url_is_allowed(url)
+        ):
+            candidates.append(descriptor)
+    if not candidates:
+        return None
+
+    url, width, height, _ = max(
+        candidates,
+        key=lambda item: item[1] * item[2],
+    )
+    parsed = urllib.parse.urlparse(url)
+    suffix = Path(urllib.parse.unquote(parsed.path)).suffix.lower()
+    declared_type = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+    }.get(suffix, "")
+    label = _marker_label(marker, inline_labels) or descriptor_label or prompt_text
+    marker_digest = hashlib.sha256(marker[0].encode("utf-8")).hexdigest()[:16]
+    return GeminiImageAsset(
+        url=url,
+        filename=f"retrieved-{marker_digest}{suffix or '.img'}",
+        declared_type=declared_type,
+        width=width,
+        height=height,
+        kind="retrieved",
+        turn_index=turn_index,
+        position=position,
+        caption=_caption_for_asset("retrieved", turn_index, label),
+    )
+
+
+def _caption_for_asset(kind: str, turn_index: int, prompt_text: str) -> str:
+    prefix = {
+        "uploaded": "Зображення користувача",
+        "retrieved": "Знайдене Gemini зображення",
+    }.get(kind, "Ілюстрація Gemini")
     prefix = f"{prefix} до репліки {turn_index + 1}"
     if not prompt_text:
         return prefix
@@ -425,12 +596,29 @@ def extract_gemini_image_assets(payload: Any) -> list[GeminiImageAsset]:
                 assets.append(generated)
                 seen_urls.add(generated.url)
 
+        retrieved: list[GeminiImageAsset] = []
+        inline_labels = _inline_image_labels(turn[3])
+        for group in _iter_lists(turn[3]):
+            asset = _retrieved_asset_from_group(
+                group,
+                turn_index=turn_index,
+                position=len(retrieved),
+                prompt_text=prompt_text,
+                inline_labels=inline_labels,
+            )
+            if asset and asset.url not in seen_urls:
+                retrieved.append(asset)
+                seen_urls.add(asset.url)
+        assets.extend(retrieved)
+
         if len(assets) >= MAX_IMAGES:
             return assets[:MAX_IMAGES]
     return assets
 
 
 def _full_resolution_url(value: str) -> str:
+    if not _gemini_image_host_is_allowed(value):
+        return value
     parsed = urllib.parse.urlsplit(value)
     path = re.sub(r"=mp\d+$", "=s0", parsed.path)
     if path == parsed.path and not re.search(r"=s\d+$", path):
@@ -444,13 +632,18 @@ def download_gemini_image(
     client: GeminiHttpClient,
     source_url: str,
 ) -> DownloadedImage:
+    download_url = _full_resolution_url(asset.url)
+    if not _download_image_host_is_allowed(download_url):
+        raise GeminiIllustrationImportError(
+            "Gemini image is hosted on an unsupported host."
+        )
     response = client.request(
-        _full_resolution_url(asset.url),
+        download_url,
         accept="image/*",
         referer=source_url,
         max_bytes=MAX_IMAGE_BYTES,
     )
-    if not _image_host_is_allowed(response.final_url):
+    if not _download_image_host_is_allowed(response.final_url):
         raise GeminiIllustrationImportError(
             "Gemini image redirected to an unsupported host."
         )
