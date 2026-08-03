@@ -342,6 +342,29 @@ class GeminiIllustrationExtractionTests(SimpleTestCase):
             "https://gemini.google.com/share/abc123",
         )
 
+    def test_share_gemini_short_link_is_resolved_and_canonicalized(self):
+        short_url = "https://share.gemini.google/6bz7OD5NL7wx"
+        requested_urls = []
+
+        class Client:
+            def request(self, url, **kwargs):
+                requested_urls.append(url)
+                return HttpResponse(
+                    body=b"",
+                    content_type="text/html",
+                    final_url=(
+                        "https://gemini.google.com/share/a89ae81075ef"
+                        "?skid=example"
+                    ),
+                )
+
+        self.assertTrue(is_gemini_share_url(short_url))
+        self.assertEqual(
+            canonical_gemini_share_url(short_url, client=Client()),
+            "https://gemini.google.com/share/a89ae81075ef",
+        )
+        self.assertEqual(requested_urls, [short_url])
+
     def test_download_uses_original_resolution_url(self):
         output = BytesIO()
         Image.new("RGB", (4, 3), color=(12, 34, 56)).save(
@@ -533,7 +556,10 @@ class GeminiIllustrationBackfillCommandTests(APITestCase):
         )
 
     def test_dry_run_lists_only_published_gemini_dialogues_without_images(self):
-        eligible = self.create_dialogue("Eligible dialogue")
+        eligible = self.create_dialogue(
+            "Eligible dialogue",
+            source_url="https://share.gemini.google/6bz7OD5NL7wx",
+        )
         with_images = self.create_dialogue("Already illustrated")
         DialogueIllustration.objects.create(
             dialogue=with_images,
@@ -831,11 +857,58 @@ class ExternalDialogueLinkTests(APITestCase):
             ['https://gemini.google.com/share/abc123'],
         )
 
+    def test_share_gemini_link_is_allowed_and_canonicalized_for_import(self):
+        imported_urls = []
+
+        def extract_share(url):
+            imported_urls.append(url)
+            return {
+                'service': 'gemini',
+                'title': 'Imported title',
+                'messages': [
+                    {'role': 'user', 'content': 'Question'},
+                    {'role': 'assistant', 'content': 'Answer'},
+                ],
+            }
+
+        extractor = SimpleNamespace(extract_share=extract_share)
+        with (
+            patch.dict('sys.modules', {'llm_shared_chat': extractor}),
+            patch(
+                'dialogues.views.canonical_gemini_share_url',
+                return_value='https://gemini.google.com/share/a89ae81075ef',
+            ) as canonicalizer,
+        ):
+            response = self.client.post('/api/dialogues/import-share/', {
+                'url': 'https://share.gemini.google/6bz7OD5NL7wx',
+            }, format='json')
+
+        self.assertEqual(response.status_code, 200)
+        canonicalizer.assert_called_once_with(
+            'https://share.gemini.google/6bz7OD5NL7wx'
+        )
+        self.assertEqual(
+            imported_urls,
+            ['https://gemini.google.com/share/a89ae81075ef'],
+        )
+
     def test_gco_gemini_link_sets_gemini_as_source_model(self):
         response = self.client.post('/api/dialogues/', {
             'title': 'Gemini short link',
             'section': self.section.id,
             'source_url': 'https://g.co/gemini/share/abc123',
+            'status': Dialogue.STATUS_DRAFT,
+        }, format='json')
+
+        self.assertEqual(response.status_code, 201)
+        dialogue = Dialogue.objects.get(pk=response.data['id'])
+        self.assertEqual(dialogue.llm_name, 'Gemini')
+
+    def test_share_gemini_link_sets_gemini_as_source_model(self):
+        response = self.client.post('/api/dialogues/', {
+            'title': 'Gemini redirect link',
+            'section': self.section.id,
+            'source_url': 'https://share.gemini.google/6bz7OD5NL7wx',
             'status': Dialogue.STATUS_DRAFT,
         }, format='json')
 
@@ -873,6 +946,36 @@ class ExternalDialogueLinkTests(APITestCase):
             action='import_gemini_illustrations',
             object_id=str(create_response.data['id']),
         ).exists())
+
+    def test_staff_short_link_is_imported_when_published_immediately(self):
+        self.author.is_staff = True
+        self.author.save(update_fields=['is_staff'])
+        import_result = GeminiIllustrationImportResult(
+            found=2,
+            imported=2,
+            skipped_duplicates=0,
+            failed=0,
+        )
+        with patch(
+            'dialogues.views.import_gemini_illustrations',
+            return_value=import_result,
+        ) as importer:
+            create_response = self.client.post('/api/dialogues/', {
+                'title': 'Staff Gemini draft',
+                'section': self.section.id,
+                'source_url': 'https://share.gemini.google/6bz7OD5NL7wx',
+                'status': Dialogue.STATUS_DRAFT,
+            }, format='json')
+            publish_response = self.client.patch(
+                f"/api/dialogues/{create_response.data['id']}/",
+                {'status': Dialogue.STATUS_SUBMITTED},
+                format='json',
+            )
+
+        self.assertEqual(create_response.status_code, 201)
+        self.assertEqual(publish_response.status_code, 200)
+        self.assertEqual(publish_response.data['status'], Dialogue.STATUS_PUBLISHED)
+        importer.assert_called_once()
 
     def test_gemini_import_failure_does_not_block_submission(self):
         with (

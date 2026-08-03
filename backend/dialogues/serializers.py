@@ -11,6 +11,7 @@ from .models import (
 
 AI_PROVIDERS = (
     ('gemini.google.com', 'Gemini'),
+    ('share.gemini.google', 'Gemini'),
     ('share.google', 'Gemini'),
     ('chatgpt.com', 'ChatGPT'),
     ('chat.openai.com', 'ChatGPT'),

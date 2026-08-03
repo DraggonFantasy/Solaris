@@ -202,26 +202,73 @@ def is_gemini_share_url(value: str) -> bool:
         return len(parts) >= 2 and parts[0] == "share"
     if hostname == "g.co":
         return len(parts) >= 3 and parts[:2] == ["gemini", "share"]
+    if hostname == "share.gemini.google":
+        return (
+            len(parts) == 1
+            and bool(re.fullmatch(r"[A-Za-z0-9_-]+", parts[0]))
+        )
     return False
 
 
-def _parse_gemini_share_url(value: str) -> tuple[str, str]:
-    if not is_gemini_share_url(value):
-        raise GeminiIllustrationImportError(
-            "Only public Gemini share links can import illustrations."
-        )
+def _parse_direct_gemini_share_url(value: str) -> tuple[str, str]:
     parsed = urllib.parse.urlparse(value.strip())
     hostname = (parsed.hostname or "").lower().rstrip(".")
     parts = [part for part in parsed.path.split("/") if part]
-    share_id = parts[2] if hostname == "g.co" else parts[1]
+    if parsed.scheme not in {"http", "https"}:
+        raise GeminiIllustrationImportError(
+            "Only public Gemini share links can import illustrations."
+        )
+    if hostname in {"gemini.google.com", "www.gemini.google.com"}:
+        if len(parts) < 2 or parts[0] != "share":
+            raise GeminiIllustrationImportError(
+                "Gemini short link redirected to an unsupported page."
+            )
+        share_id = parts[1]
+    elif hostname == "g.co":
+        if len(parts) < 3 or parts[:2] != ["gemini", "share"]:
+            raise GeminiIllustrationImportError(
+                "Only public Gemini share links can import illustrations."
+            )
+        share_id = parts[2]
+    else:
+        raise GeminiIllustrationImportError(
+            "Gemini short link redirected to an unsupported host."
+        )
     if not re.fullmatch(r"[A-Za-z0-9_-]+", share_id):
         raise GeminiIllustrationImportError("Invalid Gemini share identifier.")
     clean_url = f"https://gemini.google.com/share/{share_id}"
     return share_id, clean_url
 
 
-def canonical_gemini_share_url(value: str) -> str:
-    return _parse_gemini_share_url(value)[1]
+def _parse_gemini_share_url(
+    value: str,
+    *,
+    client: GeminiHttpClient | None = None,
+) -> tuple[str, str]:
+    if not is_gemini_share_url(value):
+        raise GeminiIllustrationImportError(
+            "Only public Gemini share links can import illustrations."
+        )
+    parsed = urllib.parse.urlparse(value.strip())
+    hostname = (parsed.hostname or "").lower().rstrip(".")
+    if hostname != "share.gemini.google":
+        return _parse_direct_gemini_share_url(value)
+
+    client = client or GeminiHttpClient()
+    response = client.request(
+        value.strip(),
+        accept="text/html,application/xhtml+xml,*/*",
+        max_bytes=MAX_PAGE_BYTES,
+    )
+    return _parse_direct_gemini_share_url(response.final_url)
+
+
+def canonical_gemini_share_url(
+    value: str,
+    *,
+    client: GeminiHttpClient | None = None,
+) -> str:
+    return _parse_gemini_share_url(value, client=client)[1]
 
 
 def _extract_wiz_value(raw_html: str, key: str) -> str:
@@ -259,7 +306,7 @@ def fetch_gemini_payload(
     *,
     client: GeminiHttpClient,
 ) -> tuple[str, str, Any]:
-    share_id, clean_url = _parse_gemini_share_url(source_url)
+    share_id, clean_url = _parse_gemini_share_url(source_url, client=client)
     raw_html = client.get_text(clean_url, max_bytes=MAX_PAGE_BYTES)
     build_label = _extract_wiz_value(raw_html, "cfb2h")
     session_id = _extract_wiz_value(raw_html, "FdrFJe")

@@ -442,6 +442,7 @@ class DialogueImportShareView(APIView):
         'chat.openai.com',
         'claude.ai',
         'gemini.google.com',
+        'share.gemini.google',
         'share.google',
         'g.co',
     }
