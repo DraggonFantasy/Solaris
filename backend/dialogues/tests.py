@@ -1,11 +1,13 @@
 import hashlib
-from io import BytesIO
+from io import BytesIO, StringIO
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import SimpleTestCase, override_settings
 from PIL import Image
 from rest_framework.test import APITestCase
@@ -507,6 +509,130 @@ class GeminiIllustrationImportTests(APITestCase):
             "gemini:test-share:0:generated:0",
         )
         downloader.assert_called_once()
+
+
+class GeminiIllustrationBackfillCommandTests(APITestCase):
+    def setUp(self):
+        self.section = Section.objects.create(
+            name="Backfill",
+            slug="gemini-backfill",
+        )
+
+    def create_dialogue(
+        self,
+        title,
+        *,
+        source_url="https://gemini.google.com/share/example",
+        status=Dialogue.STATUS_PUBLISHED,
+    ):
+        return Dialogue.objects.create(
+            title=title,
+            section=self.section,
+            source_url=source_url,
+            status=status,
+        )
+
+    def test_dry_run_lists_only_published_gemini_dialogues_without_images(self):
+        eligible = self.create_dialogue("Eligible dialogue")
+        with_images = self.create_dialogue("Already illustrated")
+        DialogueIllustration.objects.create(
+            dialogue=with_images,
+            image="illustrations/existing.png",
+        )
+        self.create_dialogue(
+            "Not Gemini",
+            source_url="https://example.com/dialogue",
+        )
+        self.create_dialogue(
+            "Still submitted",
+            status=Dialogue.STATUS_SUBMITTED,
+        )
+        stdout = StringIO()
+
+        with patch(
+            "dialogues.management.commands.backfill_gemini_illustrations."
+            "import_gemini_illustrations"
+        ) as importer:
+            call_command(
+                "backfill_gemini_illustrations",
+                "--dry-run",
+                stdout=stdout,
+            )
+
+        output = stdout.getvalue()
+        self.assertIn(f"[{eligible.pk}] Eligible dialogue", output)
+        self.assertNotIn("Already illustrated", output)
+        self.assertNotIn("Not Gemini", output)
+        self.assertNotIn("Still submitted", output)
+        importer.assert_not_called()
+        self.assertFalse(AuditLog.objects.exists())
+
+    def test_imports_eligible_dialogue_and_writes_audit_log(self):
+        dialogue = self.create_dialogue("Needs images")
+        result = GeminiIllustrationImportResult(
+            found=2,
+            imported=2,
+            skipped_duplicates=0,
+            failed=0,
+        )
+        stdout = StringIO()
+
+        with patch(
+            "dialogues.management.commands.backfill_gemini_illustrations."
+            "import_gemini_illustrations",
+            return_value=result,
+        ) as importer:
+            call_command("backfill_gemini_illustrations", stdout=stdout)
+
+        self.assertEqual(importer.call_count, 1)
+        self.assertEqual(importer.call_args.args[0].pk, dialogue.pk)
+        self.assertIn("imported images: 2", stdout.getvalue())
+        audit = AuditLog.objects.get(
+            action="backfill_gemini_illustrations",
+            object_id=str(dialogue.pk),
+        )
+        self.assertIn("imported: 2", audit.details)
+
+    def test_continues_after_one_dialogue_fails(self):
+        first = self.create_dialogue("Broken link")
+        second = self.create_dialogue(
+            "Working link",
+            source_url="https://gemini.google.com/share/working",
+        )
+        result = GeminiIllustrationImportResult(
+            found=1,
+            imported=1,
+            skipped_duplicates=0,
+            failed=0,
+        )
+
+        with patch(
+            "dialogues.management.commands.backfill_gemini_illustrations."
+            "import_gemini_illustrations",
+            side_effect=[RuntimeError("Unavailable share"), result],
+        ) as importer:
+            with self.assertRaises(CommandError):
+                call_command(
+                    "backfill_gemini_illustrations",
+                    stdout=StringIO(),
+                    stderr=StringIO(),
+                )
+
+        self.assertEqual(importer.call_count, 2)
+        self.assertEqual(importer.call_args_list[0].args[0].pk, first.pk)
+        self.assertEqual(importer.call_args_list[1].args[0].pk, second.pk)
+        self.assertTrue(
+            AuditLog.objects.filter(
+                action="backfill_gemini_illustrations_failed",
+                object_id=str(first.pk),
+            ).exists()
+        )
+        self.assertTrue(
+            AuditLog.objects.filter(
+                action="backfill_gemini_illustrations",
+                object_id=str(second.pk),
+            ).exists()
+        )
 
 
 class DialogueModerationTests(APITestCase):
