@@ -42,6 +42,7 @@ MAX_IMAGE_BYTES = 20 * 1024 * 1024
 MAX_TOTAL_IMAGE_BYTES = 60 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
 MAX_IMAGES = 20
+MAX_LITERATURE_CHARS = 20_000
 RETRIEVAL_MARKER_PREFIXES = (
     "http://googleusercontent.com/image_collection/image_retrieval/",
     "https://googleusercontent.com/image_collection/image_retrieval/",
@@ -53,6 +54,92 @@ IMAGE_TAG_RE = re.compile(r"<Image\b(?P<attributes>[^>]*)>", re.IGNORECASE)
 IMAGE_TAG_ATTRIBUTE_RE = re.compile(
     r'\b(?P<name>src|caption|alt)="(?P<value>[^"]*)"',
     re.IGNORECASE,
+)
+LITERATURE_HEADING_TITLES = (
+    # Ukrainian
+    "рекомендована література",
+    "рекомендована література та джерела",
+    "рекомендовані джерела",
+    "рекомендовані джерела та література",
+    "рекомендовані матеріали",
+    "рекомендовані ресурси",
+    "список рекомендованої літератури",
+    "список літератури",
+    "список джерел",
+    "список використаних джерел",
+    "джерела та література",
+    "література та джерела",
+    "використані джерела",
+    "додаткова література",
+    "матеріали для подальшого читання",
+    "для подальшого читання",
+    "бібліографія",
+    "література",
+    "джерела",
+    # Russian
+    "рекомендованная литература",
+    "рекомендованная литература и источники",
+    "рекомендуемая литература",
+    "рекомендуемая литература и источники",
+    "рекомендованные источники",
+    "рекомендуемые источники",
+    "рекомендованные материалы",
+    "рекомендуемые материалы",
+    "рекомендованные ресурсы",
+    "рекомендуемые ресурсы",
+    "список рекомендованной литературы",
+    "список рекомендуемой литературы",
+    "список литературы",
+    "список источников",
+    "список использованных источников",
+    "источники и литература",
+    "литература и источники",
+    "использованные источники",
+    "дополнительная литература",
+    "материалы для дальнейшего чтения",
+    "для дальнейшего чтения",
+    "библиография",
+    "литература",
+    "источники",
+    # English
+    "recommended reading",
+    "recommended literature",
+    "recommended sources",
+    "recommended resources",
+    "recommended books",
+    "suggested reading",
+    "suggested literature",
+    "suggested sources",
+    "suggested resources",
+    "further reading",
+    "additional reading",
+    "reading list",
+    "reference list",
+    "selected bibliography",
+    "literature and sources",
+    "sources and references",
+    "books and resources",
+    "works cited",
+    "bibliography",
+    "references",
+    "sources",
+)
+LITERATURE_HEADING_TITLE_PATTERN = "|".join(
+    re.escape(title).replace(r"\ ", r"[ \t]+")
+    for title in sorted(LITERATURE_HEADING_TITLES, key=len, reverse=True)
+)
+LITERATURE_HEADING_RE = re.compile(
+    r"^[ \t]*(?:(?P<hashes>#{1,6})[ \t]+)?"
+    r"(?:(?:\d+(?:\.\d+)*)[.)]?[ \t]+)?"
+    r"(?:[📚📖🔗][ \t]*)?(?:\*\*|__)?[ \t]*"
+    rf"(?:{LITERATURE_HEADING_TITLE_PATTERN})"
+    r"(?:[ \t]+\([^()\r\n]{1,120}\))?[ \t]*"
+    r"(?::[ \t]*)?(?:\*\*|__)?[ \t]*(?::[ \t]*)?$",
+    re.IGNORECASE | re.MULTILINE,
+)
+MARKDOWN_HEADING_RE = re.compile(
+    r"^[ \t]{0,3}(?P<hashes>#{1,6})[ \t]+\S.*$",
+    re.MULTILINE,
 )
 
 
@@ -93,6 +180,8 @@ class GeminiIllustrationImportResult:
     imported: int
     skipped_duplicates: int
     failed: int
+    literature_found: bool = False
+    literature_imported: bool = False
 
 
 class GeminiHttpClient:
@@ -453,6 +542,46 @@ def _iter_strings(value: Any):
             yield from _iter_strings(child)
 
 
+def _literature_blocks(text: str) -> list[str]:
+    blocks: list[str] = []
+    for match in LITERATURE_HEADING_RE.finditer(text):
+        heading_level = len(match.group("hashes") or "")
+        end = len(text)
+        for next_heading in MARKDOWN_HEADING_RE.finditer(text, match.end()):
+            next_level = len(next_heading.group("hashes"))
+            if heading_level == 0 or next_level <= heading_level:
+                end = next_heading.start()
+                break
+        block = text[match.end():end].strip()
+        if block:
+            blocks.append(block[:MAX_LITERATURE_CHARS].rstrip())
+    return blocks
+
+
+def extract_gemini_recommended_literature(payload: Any) -> str:
+    root = payload[0] if isinstance(payload, list) and payload else None
+    turns = root[1] if isinstance(root, list) and len(root) > 1 else None
+    if not isinstance(turns, list):
+        return ""
+
+    latest = ""
+    for turn in turns:
+        if not isinstance(turn, list) or len(turn) < 4:
+            continue
+        turn_blocks: list[str] = []
+        seen_blocks: set[str] = set()
+        for text in _iter_strings(turn[3]):
+            for block in _literature_blocks(text):
+                if block not in seen_blocks:
+                    turn_blocks.append(block)
+                    seen_blocks.add(block)
+        if turn_blocks:
+            # Gemini repeats the response in raw and structured forms. The raw
+            # form contains the complete block and is normally the longest one.
+            latest = max(turn_blocks, key=len)
+    return latest
+
+
 def _inline_image_labels(value: Any) -> dict[str, str]:
     labels: dict[str, str] = {}
     for text in _iter_strings(value):
@@ -758,6 +887,13 @@ def import_gemini_illustrations(
         dialogue.source_url,
         client=client,
     )
+    literature = extract_gemini_recommended_literature(payload)
+    literature_imported = False
+    if literature and not dialogue.recommended_literature.strip():
+        dialogue.recommended_literature = literature
+        dialogue.save(update_fields=["recommended_literature", "updated_at"])
+        literature_imported = True
+
     assets = extract_gemini_image_assets(payload)
     existing_digests = _existing_image_digests(dialogue)
     existing_source_keys = set(
@@ -824,4 +960,6 @@ def import_gemini_illustrations(
         imported=imported,
         skipped_duplicates=skipped_duplicates,
         failed=failed,
+        literature_found=bool(literature),
+        literature_imported=literature_imported,
     )

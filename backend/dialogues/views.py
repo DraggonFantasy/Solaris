@@ -104,7 +104,7 @@ def maybe_import_gemini_illustrations(
 
     action = (
         "import_gemini_illustrations_failed"
-        if result.failed and not result.imported
+        if result.failed and not result.imported and not result.literature_imported
         else "import_gemini_illustrations"
     )
     AuditLog.objects.create(
@@ -114,7 +114,9 @@ def maybe_import_gemini_illustrations(
         object_id=str(dialogue.id),
         details=(
             f"Found: {result.found}; imported: {result.imported}; "
-            f"duplicates: {result.skipped_duplicates}; failed: {result.failed}"
+            f"duplicates: {result.skipped_duplicates}; failed: {result.failed}; "
+            f"literature found: {result.literature_found}; "
+            f"literature imported: {result.literature_imported}"
         ),
     )
 

@@ -20,6 +20,7 @@ from .gemini_illustrations import (
     canonical_gemini_share_url,
     download_gemini_image,
     extract_gemini_image_assets,
+    extract_gemini_recommended_literature,
     import_gemini_illustrations,
     is_gemini_share_url,
 )
@@ -333,6 +334,96 @@ class GeminiIllustrationExtractionTests(SimpleTestCase):
 
         self.assertEqual(extract_gemini_image_assets(payload), [])
 
+    def test_extracts_last_explicit_recommended_literature_block(self):
+        payload = [[
+            None,
+            [
+                [
+                    None,
+                    None,
+                    [["First prompt"]],
+                    ["## Recommended reading\n\n- Older source"],
+                ],
+                [
+                    None,
+                    None,
+                    [["Second prompt"]],
+                    [
+                        "Висновок.\n\n"
+                        "## Рекомендована література\n\n"
+                        "- Автор. Нова книга. 2025.\n\n"
+                        "### Першоджерела\n\n"
+                        "- Автор. Стаття. DOI: 10.1000/example\n\n"
+                        "## Наступний розділ\n\n"
+                        "Цей текст не належить до літератури."
+                    ],
+                ],
+            ],
+        ]]
+
+        literature = extract_gemini_recommended_literature(payload)
+
+        self.assertEqual(
+            literature,
+            "- Автор. Нова книга. 2025.\n\n"
+            "### Першоджерела\n\n"
+            "- Автор. Стаття. DOI: 10.1000/example",
+        )
+
+    def test_does_not_treat_unlabelled_citations_as_literature(self):
+        payload = [[
+            None,
+            [[
+                None,
+                None,
+                [["Prompt"]],
+                [
+                    "Джерело: https://example.com/article\n\n"
+                    "Див. також книгу автора.\n\n"
+                    "У відповіді використані джерела та література.\n"
+                    "Recommended reading can help explore the topic."
+                ],
+            ]],
+        ]]
+
+        self.assertEqual(extract_gemini_recommended_literature(payload), "")
+
+    def test_extracts_common_literature_heading_variants(self):
+        headings = (
+            "## Рекомендованная литература",
+            "### Список літератури",
+            "**Рекомендовані джерела:**",
+            "4. Джерела та література",
+            "📚 Додаткова література",
+            "## Список використаних джерел",
+            "# Список источников",
+            "### Рекомендованная литература и источники",
+            "__Для дальнейшего чтения__:",
+            "## Further reading",
+            "## Reading list",
+            "### Recommended resources",
+            "### References",
+            "2. **Works cited:**",
+            "## Sources (selected)",
+        )
+
+        for heading in headings:
+            with self.subTest(heading=heading):
+                payload = [[
+                    None,
+                    [[
+                        None,
+                        None,
+                        [["Prompt"]],
+                        [f"{heading}\n\n- Source"],
+                    ]],
+                ]]
+
+                self.assertEqual(
+                    extract_gemini_recommended_literature(payload),
+                    "- Source",
+                )
+
     def test_gco_short_link_is_recognized_and_canonicalized(self):
         short_url = "https://g.co/gemini/share/abc123"
 
@@ -533,6 +624,64 @@ class GeminiIllustrationImportTests(APITestCase):
         )
         downloader.assert_called_once()
 
+    def test_import_saves_explicit_recommended_literature(self):
+        payload = [[None, [[
+            None,
+            None,
+            [["Recommend sources"]],
+            [
+                "## Рекомендуемая литература\n\n"
+                "- Автор. Книга. 2024. https://example.com/book"
+            ],
+        ]]]]
+
+        with patch(
+            "dialogues.gemini_illustrations.fetch_gemini_payload",
+            return_value=(
+                "test-share",
+                self.dialogue.source_url,
+                payload,
+            ),
+        ):
+            result = import_gemini_illustrations(self.dialogue)
+
+        self.dialogue.refresh_from_db()
+        self.assertEqual(
+            self.dialogue.recommended_literature,
+            "- Автор. Книга. 2024. https://example.com/book",
+        )
+        self.assertTrue(result.literature_found)
+        self.assertTrue(result.literature_imported)
+        self.assertEqual(result.found, 0)
+
+    def test_import_does_not_overwrite_existing_recommended_literature(self):
+        self.dialogue.recommended_literature = "Авторський список"
+        self.dialogue.save(update_fields=["recommended_literature", "updated_at"])
+        payload = [[None, [[
+            None,
+            None,
+            [["Recommend sources"]],
+            ["## Recommended reading\n\n- Replacement source"],
+        ]]]]
+
+        with patch(
+            "dialogues.gemini_illustrations.fetch_gemini_payload",
+            return_value=(
+                "test-share",
+                self.dialogue.source_url,
+                payload,
+            ),
+        ):
+            result = import_gemini_illustrations(self.dialogue)
+
+        self.dialogue.refresh_from_db()
+        self.assertEqual(
+            self.dialogue.recommended_literature,
+            "Авторський список",
+        )
+        self.assertTrue(result.literature_found)
+        self.assertFalse(result.literature_imported)
+
 
 class GeminiIllustrationBackfillCommandTests(APITestCase):
     def setUp(self):
@@ -555,15 +704,26 @@ class GeminiIllustrationBackfillCommandTests(APITestCase):
             status=status,
         )
 
-    def test_dry_run_lists_only_published_gemini_dialogues_without_images(self):
+    def test_dry_run_lists_only_published_gemini_dialogues_missing_content(self):
         eligible = self.create_dialogue(
             "Eligible dialogue",
             source_url="https://share.gemini.google/6bz7OD5NL7wx",
         )
         with_images = self.create_dialogue("Already illustrated")
+        with_images.recommended_literature = "Existing literature"
+        with_images.save(
+            update_fields=["recommended_literature", "updated_at"]
+        )
         DialogueIllustration.objects.create(
             dialogue=with_images,
             image="illustrations/existing.png",
+        )
+        without_literature = self.create_dialogue(
+            "Illustrated without literature"
+        )
+        DialogueIllustration.objects.create(
+            dialogue=without_literature,
+            image="illustrations/other.png",
         )
         self.create_dialogue(
             "Not Gemini",
@@ -587,6 +747,10 @@ class GeminiIllustrationBackfillCommandTests(APITestCase):
 
         output = stdout.getvalue()
         self.assertIn(f"[{eligible.pk}] Eligible dialogue", output)
+        self.assertIn(
+            f"[{without_literature.pk}] Illustrated without literature",
+            output,
+        )
         self.assertNotIn("Already illustrated", output)
         self.assertNotIn("Not Gemini", output)
         self.assertNotIn("Still submitted", output)
@@ -600,6 +764,8 @@ class GeminiIllustrationBackfillCommandTests(APITestCase):
             imported=2,
             skipped_duplicates=0,
             failed=0,
+            literature_found=True,
+            literature_imported=True,
         )
         stdout = StringIO()
 
@@ -613,11 +779,13 @@ class GeminiIllustrationBackfillCommandTests(APITestCase):
         self.assertEqual(importer.call_count, 1)
         self.assertEqual(importer.call_args.args[0].pk, dialogue.pk)
         self.assertIn("imported images: 2", stdout.getvalue())
+        self.assertIn("imported literature: 1", stdout.getvalue())
         audit = AuditLog.objects.get(
             action="backfill_gemini_illustrations",
             object_id=str(dialogue.pk),
         )
         self.assertIn("imported: 2", audit.details)
+        self.assertIn("literature imported: True", audit.details)
 
     def test_continues_after_one_dialogue_fails(self):
         first = self.create_dialogue("Broken link")

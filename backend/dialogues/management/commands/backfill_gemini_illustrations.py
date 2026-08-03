@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand, CommandError
+from django.db.models import Q
 
 from dialogues.gemini_illustrations import (
     import_gemini_illustrations,
@@ -9,8 +10,8 @@ from dialogues.models import AuditLog, Dialogue
 
 class Command(BaseCommand):
     help = (
-        "Import missing illustrations for published dialogues backed by public "
-        "Gemini share links."
+        "Import missing illustrations and explicit recommended literature for "
+        "published dialogues backed by public Gemini share links."
     )
 
     def add_arguments(self, parser):
@@ -30,8 +31,8 @@ class Command(BaseCommand):
             "--include-existing",
             action="store_true",
             help=(
-                "Also revisit dialogues that already have illustrations. Existing "
-                "Gemini imports are skipped idempotently."
+                "Also revisit dialogues that already have illustrations and "
+                "literature. Existing Gemini imports are skipped idempotently."
             ),
         )
         parser.add_argument(
@@ -47,7 +48,9 @@ class Command(BaseCommand):
         if options["dialogue_ids"]:
             queryset = queryset.filter(pk__in=options["dialogue_ids"])
         if not options["include_existing"]:
-            queryset = queryset.filter(illustrations__isnull=True)
+            queryset = queryset.filter(
+                Q(illustrations__isnull=True) | Q(recommended_literature="")
+            ).distinct()
 
         limit = options["limit"]
         dialogues = []
@@ -74,10 +77,15 @@ class Command(BaseCommand):
                 self.stdout.write(
                     f"[{dialogue.pk}] {dialogue.title} — {dialogue.source_url}"
                 )
-            self.stdout.write(self.style.WARNING("Dry run: no images were imported."))
+            self.stdout.write(
+                self.style.WARNING(
+                    "Dry run: no illustrations or literature were imported."
+                )
+            )
             return
 
         imported = 0
+        literature_imported = 0
         duplicates = 0
         asset_failures = 0
         dialogue_failures = 0
@@ -101,11 +109,16 @@ class Command(BaseCommand):
                 continue
 
             imported += result.imported
+            literature_imported += int(result.literature_imported)
             duplicates += result.skipped_duplicates
             asset_failures += result.failed
             action = (
                 "backfill_gemini_illustrations_failed"
-                if result.failed and not result.imported
+                if (
+                    result.failed
+                    and not result.imported
+                    and not result.literature_imported
+                )
                 else "backfill_gemini_illustrations"
             )
             AuditLog.objects.create(
@@ -115,17 +128,22 @@ class Command(BaseCommand):
                 object_id=str(dialogue.pk),
                 details=(
                     f"Found: {result.found}; imported: {result.imported}; "
-                    f"duplicates: {result.skipped_duplicates}; failed: {result.failed}"
+                    f"duplicates: {result.skipped_duplicates}; failed: {result.failed}; "
+                    f"literature found: {result.literature_found}; "
+                    f"literature imported: {result.literature_imported}"
                 ),
             )
             self.stdout.write(
                 f"[{dialogue.pk}] {dialogue.title}: found={result.found}, "
                 f"imported={result.imported}, "
-                f"duplicates={result.skipped_duplicates}, failed={result.failed}"
+                f"duplicates={result.skipped_duplicates}, failed={result.failed}, "
+                f"literature_found={result.literature_found}, "
+                f"literature_imported={result.literature_imported}"
             )
 
         summary = (
             f"Processed: {len(dialogues)}; imported images: {imported}; "
+            f"imported literature: {literature_imported}; "
             f"duplicates: {duplicates}; asset failures: {asset_failures}; "
             f"dialogue failures: {dialogue_failures}."
         )
