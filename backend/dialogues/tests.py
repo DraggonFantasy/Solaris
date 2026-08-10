@@ -24,7 +24,10 @@ from .gemini_illustrations import (
     import_gemini_illustrations,
     is_gemini_share_url,
 )
-from .models import AuditLog, Dialogue, DialogueIllustration, DialogueInlineImage, Section
+from .models import (
+    AuditLog, Dialogue, DialogueIllustration, DialogueInlineImage,
+    DialogueResourceProposal, Section,
+)
 
 
 class DialogueListViewTests(APITestCase):
@@ -1167,6 +1170,320 @@ class ExternalDialogueLinkTests(APITestCase):
             action='import_gemini_illustrations_failed',
             object_id=str(dialogue.id),
         ).exists())
+
+
+@override_settings(MEDIA_ROOT='/tmp/solaris-resource-proposal-test-media')
+class DialogueResourceProposalTests(APITestCase):
+    image_bytes = (
+        b'GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00'
+        b'\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00'
+        b'\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;'
+    )
+
+    def setUp(self):
+        self.author = get_user_model().objects.create_user(
+            username='proposal-author',
+            password='password',
+        )
+        self.other_user = get_user_model().objects.create_user(
+            username='proposal-other',
+            password='password',
+        )
+        self.moderator = get_user_model().objects.create_user(
+            username='proposal-moderator',
+            password='password',
+            is_staff=True,
+        )
+        self.section = Section.objects.create(name='Resources', slug='resources')
+        self.dialogue = Dialogue.objects.create(
+            title='Published resources',
+            section=self.section,
+            text='Text',
+            human_author=self.author,
+            status=Dialogue.STATUS_PUBLISHED,
+            authors=[
+                {'kind': 'person', 'name': 'Existing author'},
+                {'kind': 'ai_model', 'name': 'Gemini', 'version': '2.5'},
+            ],
+            llm_name='Gemini',
+            llm_version='2.5',
+            recommended_literature='Existing book',
+        )
+
+    def submit(self, data, *, user=None, format='json'):
+        self.client.force_authenticate(user=user or self.author)
+        return self.client.post(
+            f'/api/dialogues/{self.dialogue.id}/resource-proposals/',
+            data,
+            format=format,
+        )
+
+    def moderate(self, proposal, action='approve', *, user=None):
+        self.client.force_authenticate(user=user or self.moderator)
+        return self.client.post(
+            f'/api/resource-proposals/{proposal.id}/moderate/',
+            {'action': action},
+            format='json',
+        )
+
+    def image(self):
+        return SimpleUploadedFile('proposal.gif', self.image_bytes, content_type='image/gif')
+
+    def test_authenticated_user_can_submit_each_resource_type(self):
+        responses = [
+            self.submit({
+                'resource_type': 'author',
+                'kind': 'organization',
+                'name': 'Solaris Institute',
+                'description': 'Research group',
+            }),
+            self.submit({
+                'resource_type': 'ai_model',
+                'name': 'Claude',
+                'version': '4',
+            }),
+            self.submit({
+                'resource_type': 'literature',
+                'text': 'New book',
+            }),
+            self.submit({
+                'resource_type': 'illustration',
+                'caption': 'Diagram',
+                'image': self.image(),
+            }, format='multipart'),
+        ]
+
+        self.assertEqual([response.status_code for response in responses], [201, 201, 201, 201])
+        self.assertEqual(DialogueResourceProposal.objects.count(), 4)
+        self.assertTrue(all(
+            proposal.status == DialogueResourceProposal.STATUS_PENDING
+            for proposal in DialogueResourceProposal.objects.all()
+        ))
+        self.assertEqual(responses[0].data['payload']['kind'], 'organization')
+        self.assertEqual(responses[1].data['payload']['kind'], 'ai_model')
+        self.assertIn('/media/resource_proposals/illustrations/', responses[3].data['image'])
+
+    def test_submission_requires_authentication_and_published_dialogue(self):
+        self.client.force_authenticate(user=None)
+        unauthenticated = self.client.post(
+            f'/api/dialogues/{self.dialogue.id}/resource-proposals/',
+            {'resource_type': 'literature', 'text': 'Book'},
+            format='json',
+        )
+        self.assertEqual(unauthenticated.status_code, 401)
+
+        self.dialogue.status = Dialogue.STATUS_DRAFT
+        self.dialogue.save(update_fields=['status', 'published', 'updated_at'])
+        unpublished = self.submit({'resource_type': 'literature', 'text': 'Book'})
+        self.assertEqual(unpublished.status_code, 404)
+
+    def test_submission_validates_type_specific_fields(self):
+        cases = [
+            ({'resource_type': 'author'}, 'name'),
+            ({'resource_type': 'ai_model'}, 'name'),
+            ({'resource_type': 'literature'}, 'text'),
+            ({'resource_type': 'illustration'}, 'image'),
+        ]
+        for body, field in cases:
+            with self.subTest(resource_type=body['resource_type']):
+                response = self.submit(body)
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(field, response.data)
+
+    def test_user_sees_only_their_own_pending_proposals(self):
+        own = DialogueResourceProposal.objects.create(
+            dialogue=self.dialogue,
+            resource_type=DialogueResourceProposal.RESOURCE_LITERATURE,
+            payload={'text': 'Own'},
+            submitted_by=self.author,
+        )
+        DialogueResourceProposal.objects.create(
+            dialogue=self.dialogue,
+            resource_type=DialogueResourceProposal.RESOURCE_LITERATURE,
+            payload={'text': 'Other'},
+            submitted_by=self.other_user,
+        )
+        DialogueResourceProposal.objects.create(
+            dialogue=self.dialogue,
+            resource_type=DialogueResourceProposal.RESOURCE_LITERATURE,
+            payload={'text': 'Reviewed'},
+            submitted_by=self.author,
+            status=DialogueResourceProposal.STATUS_APPROVED,
+        )
+
+        self.client.force_authenticate(user=self.author)
+        response = self.client.get(
+            f'/api/dialogues/{self.dialogue.id}/resource-proposals/'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([item['id'] for item in response.data['results']], [own.id])
+
+    def test_moderator_queue_can_filter_by_resource_type(self):
+        author = DialogueResourceProposal.objects.create(
+            dialogue=self.dialogue,
+            resource_type=DialogueResourceProposal.RESOURCE_AUTHOR,
+            payload={'kind': 'person', 'name': 'Author'},
+            submitted_by=self.author,
+        )
+        DialogueResourceProposal.objects.create(
+            dialogue=self.dialogue,
+            resource_type=DialogueResourceProposal.RESOURCE_LITERATURE,
+            payload={'text': 'Book'},
+            submitted_by=self.author,
+        )
+
+        self.client.force_authenticate(user=self.moderator)
+        response = self.client.get(
+            '/api/resource-proposals/review/',
+            {'resource_type': 'author'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([item['id'] for item in response.data['results']], [author.id])
+        self.assertEqual(response.data['results'][0]['dialogue_title'], self.dialogue.title)
+
+    def test_approving_author_adds_it_without_duplicate(self):
+        proposal = DialogueResourceProposal.objects.create(
+            dialogue=self.dialogue,
+            resource_type=DialogueResourceProposal.RESOURCE_AUTHOR,
+            payload={
+                'kind': 'organization',
+                'name': 'Solaris Institute',
+                'version': '',
+                'description': 'Research group',
+            },
+            submitted_by=self.author,
+        )
+
+        response = self.moderate(proposal)
+        duplicate = DialogueResourceProposal.objects.create(
+            dialogue=self.dialogue,
+            resource_type=DialogueResourceProposal.RESOURCE_AUTHOR,
+            payload=proposal.payload,
+            submitted_by=self.other_user,
+        )
+        duplicate_response = self.moderate(duplicate)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(duplicate_response.status_code, 200)
+        self.dialogue.refresh_from_db()
+        self.assertEqual(
+            [author['name'] for author in self.dialogue.authors].count('Solaris Institute'),
+            1,
+        )
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.status, DialogueResourceProposal.STATUS_APPROVED)
+        self.assertEqual(proposal.reviewed_by, self.moderator)
+
+    def test_approving_additional_ai_models_keeps_source_model(self):
+        for name, version in [('Claude', '4'), ('ChatGPT', '5')]:
+            proposal = DialogueResourceProposal.objects.create(
+                dialogue=self.dialogue,
+                resource_type=DialogueResourceProposal.RESOURCE_AI_MODEL,
+                payload={
+                    'kind': 'ai_model',
+                    'name': name,
+                    'version': version,
+                    'description': '',
+                },
+                submitted_by=self.author,
+            )
+            self.assertEqual(self.moderate(proposal).status_code, 200)
+
+        self.dialogue.refresh_from_db()
+        model_names = [
+            author['name']
+            for author in self.dialogue.authors
+            if author.get('kind') == 'ai_model'
+        ]
+        self.assertEqual(model_names, ['Gemini', 'Claude', 'ChatGPT'])
+        self.assertEqual(self.dialogue.llm_name, 'Gemini')
+        self.assertEqual(self.dialogue.llm_version, '2.5')
+
+    def test_approving_literature_appends_a_separate_item(self):
+        proposal = DialogueResourceProposal.objects.create(
+            dialogue=self.dialogue,
+            resource_type=DialogueResourceProposal.RESOURCE_LITERATURE,
+            payload={'text': 'New book'},
+            submitted_by=self.author,
+        )
+
+        response = self.moderate(proposal)
+
+        self.assertEqual(response.status_code, 200)
+        self.dialogue.refresh_from_db()
+        self.assertEqual(self.dialogue.recommended_literature, 'Existing book\n\nNew book')
+
+    def test_approving_illustration_creates_plain_dialogue_illustration(self):
+        response = self.submit({
+            'resource_type': 'illustration',
+            'caption': 'User diagram',
+            'image': self.image(),
+        }, format='multipart')
+        proposal = DialogueResourceProposal.objects.get(pk=response.data['id'])
+
+        moderated = self.moderate(proposal)
+
+        self.assertEqual(moderated.status_code, 200)
+        illustration = DialogueIllustration.objects.get(dialogue=self.dialogue)
+        self.assertEqual(illustration.caption, 'User diagram')
+        self.assertEqual(illustration.source_key, '')
+        self.assertEqual(illustration.image.name, proposal.image.name)
+
+    def test_rejection_does_not_change_dialogue_and_proposal_cannot_be_reviewed_twice(self):
+        proposal = DialogueResourceProposal.objects.create(
+            dialogue=self.dialogue,
+            resource_type=DialogueResourceProposal.RESOURCE_LITERATURE,
+            payload={'text': 'Rejected book'},
+            submitted_by=self.author,
+        )
+
+        rejected = self.moderate(proposal, 'reject')
+        reviewed_again = self.moderate(proposal, 'approve')
+
+        self.assertEqual(rejected.status_code, 200)
+        self.assertEqual(reviewed_again.status_code, 400)
+        self.dialogue.refresh_from_db()
+        self.assertEqual(self.dialogue.recommended_literature, 'Existing book')
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.status, DialogueResourceProposal.STATUS_REJECTED)
+        self.assertTrue(AuditLog.objects.filter(
+            action='reject_resource_proposal',
+            object_id=str(proposal.id),
+        ).exists())
+
+    def test_non_staff_user_cannot_moderate(self):
+        proposal = DialogueResourceProposal.objects.create(
+            dialogue=self.dialogue,
+            resource_type=DialogueResourceProposal.RESOURCE_LITERATURE,
+            payload={'text': 'Book'},
+            submitted_by=self.author,
+        )
+
+        response = self.moderate(proposal, user=self.other_user)
+
+        self.assertEqual(response.status_code, 403)
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.status, DialogueResourceProposal.STATUS_PENDING)
+
+    def test_proposal_cannot_be_approved_after_dialogue_is_unpublished(self):
+        proposal = DialogueResourceProposal.objects.create(
+            dialogue=self.dialogue,
+            resource_type=DialogueResourceProposal.RESOURCE_LITERATURE,
+            payload={'text': 'Book'},
+            submitted_by=self.author,
+        )
+        self.dialogue.status = Dialogue.STATUS_ARCHIVED
+        self.dialogue.save(update_fields=['status', 'published', 'updated_at'])
+
+        response = self.moderate(proposal)
+
+        self.assertEqual(response.status_code, 400)
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.status, DialogueResourceProposal.STATUS_PENDING)
+        self.dialogue.refresh_from_db()
+        self.assertEqual(self.dialogue.recommended_literature, 'Existing book')
 
 
 class SolarisDialogueContextTests(APITestCase):

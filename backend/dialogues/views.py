@@ -2,19 +2,21 @@ import logging
 import re
 from urllib.parse import urlparse
 
-from django.db import models
+from django.db import models, transaction
+from django.utils import timezone
 from rest_framework import exceptions, generics, parsers, permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from .models import (
     Section, Interlocutor, Dialogue, DialogueIllustration, DialogueInlineImage,
-    Comment, Like, DialogueOrder, AuditLog,
+    DialogueResourceProposal, Comment, Like, DialogueOrder, AuditLog,
 )
 from .serializers import (
     SectionSerializer, InterlocutorSerializer,
     DialogueListSerializer, DialogueDetailSerializer, DialogueWriteSerializer,
     DialogueModerationSerializer, CommentSerializer, CommentEditSerializer,
     CommentReviewSerializer, DialogueIllustrationSerializer, DialogueInlineImageSerializer,
+    DialogueResourceProposalCreateSerializer, DialogueResourceProposalSerializer,
     DialogueOrderSerializer,
 )
 from .gemini_illustrations import (
@@ -54,6 +56,86 @@ def can_edit_dialogue(user, dialogue):
         dialogue.human_author == user
         and dialogue.status in IsAuthorEditableOrStaff.editable_statuses
     )
+
+
+def resource_author_key(author):
+    return (
+        str(author.get('kind', '')).strip().casefold(),
+        str(author.get('name', '')).strip().casefold(),
+        str(author.get('version', '')).strip().casefold(),
+    )
+
+
+def apply_resource_proposal(proposal, dialogue):
+    payload = proposal.payload if isinstance(proposal.payload, dict) else {}
+
+    if proposal.resource_type in {
+        DialogueResourceProposal.RESOURCE_AUTHOR,
+        DialogueResourceProposal.RESOURCE_AI_MODEL,
+    }:
+        kind = (
+            'ai_model'
+            if proposal.resource_type == DialogueResourceProposal.RESOURCE_AI_MODEL
+            else payload.get('kind', 'person')
+        )
+        if kind not in {'person', 'organization', 'ai_model'}:
+            raise serializers.ValidationError({'payload': 'Unsupported author type.'})
+        candidate = {
+            'kind': kind,
+            'name': str(payload.get('name', '')).strip(),
+            'version': str(payload.get('version', '')).strip(),
+            'description': str(payload.get('description', '')).strip(),
+        }
+        if not candidate['name']:
+            raise serializers.ValidationError({'payload': 'A name is required.'})
+
+        authors = [
+            item for item in dialogue.authors
+            if isinstance(item, dict)
+        ] if isinstance(dialogue.authors, list) else []
+        candidate_key = resource_author_key(candidate)
+        if not any(resource_author_key(item) == candidate_key for item in authors):
+            authors.append(candidate)
+            dialogue.authors = authors
+
+        update_fields = ['authors', 'updated_at']
+        if kind == 'ai_model' and not dialogue.llm_name:
+            dialogue.llm_name = candidate['name'][:100]
+            dialogue.llm_version = candidate['version'][:100]
+            update_fields.extend(['llm_name', 'llm_version'])
+        dialogue.save(update_fields=update_fields)
+        return
+
+    if proposal.resource_type == DialogueResourceProposal.RESOURCE_LITERATURE:
+        text = str(payload.get('text', '')).strip()
+        if not text:
+            raise serializers.ValidationError({'payload': 'Literature text is required.'})
+        existing = dialogue.recommended_literature.strip()
+        existing_blocks = {
+            block.strip().casefold()
+            for block in re.split(r'\n\s*\n', existing)
+            if block.strip()
+        }
+        if text.casefold() not in existing_blocks:
+            dialogue.recommended_literature = f'{existing}\n\n{text}'.strip()
+            dialogue.save(update_fields=['recommended_literature', 'updated_at'])
+        return
+
+    if proposal.resource_type == DialogueResourceProposal.RESOURCE_ILLUSTRATION:
+        if not proposal.image:
+            raise serializers.ValidationError({'image': 'An image is required.'})
+        last_order = dialogue.illustrations.aggregate(
+            maximum=models.Max('order')
+        )['maximum']
+        DialogueIllustration.objects.create(
+            dialogue=dialogue,
+            image=proposal.image.name,
+            caption=str(payload.get('caption', '')).strip(),
+            order=0 if last_order is None else last_order + 1,
+        )
+        return
+
+    raise serializers.ValidationError({'resource_type': 'Unsupported resource type.'})
 
 
 def maybe_import_gemini_illustrations(
@@ -169,6 +251,8 @@ class SectionResourcesView(APIView):
             if dialogue_authors:
                 for author in dialogue_authors:
                     if not isinstance(author, dict) or not author.get('name'):
+                        continue
+                    if author.get('kind') == 'ai_model':
                         continue
                     authors.append({
                         'dialogue_id': dialogue.id,
@@ -573,6 +657,134 @@ class DialogueIllustrationDetailView(generics.RetrieveUpdateDestroyAPIView):
             action='delete_illustration',
             object_type='DialogueIllustration',
             object_id=str(illustration_id),
+        )
+
+
+class DialogueResourceProposalListCreateView(generics.ListCreateAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [parsers.JSONParser, parsers.MultiPartParser, parsers.FormParser]
+
+    def get_dialogue(self):
+        if not hasattr(self, '_dialogue'):
+            self._dialogue = generics.get_object_or_404(
+                Dialogue,
+                pk=self.kwargs['dialogue_id'],
+                status=Dialogue.STATUS_PUBLISHED,
+            )
+        return self._dialogue
+
+    def get_queryset(self):
+        qs = DialogueResourceProposal.objects.filter(
+            dialogue=self.get_dialogue(),
+            status=DialogueResourceProposal.STATUS_PENDING,
+        ).select_related('dialogue', 'dialogue__section', 'submitted_by')
+        if self.request.user.is_staff:
+            return qs
+        return qs.filter(submitted_by=self.request.user)
+
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return DialogueResourceProposalCreateSerializer
+        return DialogueResourceProposalSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        proposal = serializer.save(
+            dialogue=self.get_dialogue(),
+            submitted_by=request.user,
+        )
+        AuditLog.objects.create(
+            user=request.user,
+            action='create_resource_proposal',
+            object_type='DialogueResourceProposal',
+            object_id=str(proposal.id),
+            details=f'{proposal.resource_type} for dialogue {proposal.dialogue_id}',
+        )
+        output = DialogueResourceProposalSerializer(
+            proposal,
+            context={'request': request},
+        )
+        return Response(output.data, status=status.HTTP_201_CREATED)
+
+
+class DialogueResourceProposalReviewListView(generics.ListAPIView):
+    serializer_class = DialogueResourceProposalSerializer
+    permission_classes = [permissions.IsAdminUser]
+
+    def get_queryset(self):
+        qs = DialogueResourceProposal.objects.select_related(
+            'dialogue',
+            'dialogue__section',
+            'submitted_by',
+        )
+        status_filter = self.request.query_params.get(
+            'status',
+            DialogueResourceProposal.STATUS_PENDING,
+        )
+        resource_type = self.request.query_params.get('resource_type')
+        if status_filter != 'all':
+            qs = qs.filter(status=status_filter)
+        if resource_type:
+            qs = qs.filter(resource_type=resource_type)
+        return qs
+
+
+class DialogueResourceProposalModerateView(APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, pk):
+        action = request.data.get('action')
+        if action not in {'approve', 'reject'}:
+            return Response(
+                {'detail': 'Unsupported moderation action.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            proposal = generics.get_object_or_404(
+                DialogueResourceProposal.objects.select_for_update().select_related(
+                    'dialogue',
+                    'dialogue__section',
+                    'submitted_by',
+                ),
+                pk=pk,
+            )
+            if proposal.status != DialogueResourceProposal.STATUS_PENDING:
+                return Response(
+                    {'detail': 'This proposal has already been reviewed.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if action == 'approve':
+                dialogue = Dialogue.objects.select_for_update().get(pk=proposal.dialogue_id)
+                if dialogue.status != Dialogue.STATUS_PUBLISHED:
+                    return Response(
+                        {'detail': 'Resources can only be added to a published dialogue.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                apply_resource_proposal(proposal, dialogue)
+                proposal.status = DialogueResourceProposal.STATUS_APPROVED
+            else:
+                proposal.status = DialogueResourceProposal.STATUS_REJECTED
+
+            proposal.reviewed_by = request.user
+            proposal.reviewed_at = timezone.now()
+            proposal.save(update_fields=['status', 'reviewed_by', 'reviewed_at'])
+
+            AuditLog.objects.create(
+                user=request.user,
+                action=f'{action}_resource_proposal',
+                object_type='DialogueResourceProposal',
+                object_id=str(proposal.id),
+                details=f'{proposal.resource_type} for dialogue {proposal.dialogue_id}',
+            )
+
+        return Response(
+            DialogueResourceProposalSerializer(
+                proposal,
+                context={'request': request},
+            ).data
         )
 
 

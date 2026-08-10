@@ -111,6 +111,70 @@ class DialogueIllustration(models.Model):
         return f'Illustration for "{self.dialogue.title}"'
 
 
+class DialogueResourceProposal(models.Model):
+    RESOURCE_AUTHOR = 'author'
+    RESOURCE_LITERATURE = 'literature'
+    RESOURCE_ILLUSTRATION = 'illustration'
+    RESOURCE_AI_MODEL = 'ai_model'
+
+    RESOURCE_TYPE_CHOICES = [
+        (RESOURCE_AUTHOR, 'Author'),
+        (RESOURCE_LITERATURE, 'Literature'),
+        (RESOURCE_ILLUSTRATION, 'Illustration'),
+        (RESOURCE_AI_MODEL, 'AI model'),
+    ]
+
+    STATUS_PENDING = 'pending'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_APPROVED, 'Approved'),
+        (STATUS_REJECTED, 'Rejected'),
+    ]
+
+    dialogue = models.ForeignKey(
+        Dialogue,
+        on_delete=models.CASCADE,
+        related_name='resource_proposals',
+    )
+    resource_type = models.CharField(max_length=32, choices=RESOURCE_TYPE_CHOICES)
+    payload = models.JSONField(default=dict, blank=True)
+    image = models.ImageField(
+        upload_to='resource_proposals/illustrations/',
+        blank=True,
+        null=True,
+    )
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='dialogue_resource_proposals',
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        db_index=True,
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reviewed_dialogue_resource_proposals',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f'{self.get_resource_type_display()} proposal for "{self.dialogue.title}"'
+
+
 class DialogueInlineImage(models.Model):
     dialogue = models.ForeignKey(Dialogue, on_delete=models.CASCADE, related_name='inline_images')
     image = models.ImageField(upload_to='dialogue_inline_images/')

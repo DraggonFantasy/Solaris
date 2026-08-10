@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     Section, Interlocutor, Dialogue, DialogueIllustration, DialogueInlineImage,
-    Comment, Like, DialogueOrder, AuditLog,
+    DialogueResourceProposal, Comment, Like, DialogueOrder, AuditLog,
 )
 
 
@@ -56,6 +56,17 @@ class CommentAdmin(admin.ModelAdmin):
     @admin.action(description='Approve selected comments')
     def approve_comments(self, request, queryset):
         queryset.update(approved=True)
+
+
+@admin.register(DialogueResourceProposal)
+class DialogueResourceProposalAdmin(admin.ModelAdmin):
+    list_display = (
+        'resource_type', 'dialogue', 'submitted_by', 'status',
+        'created_at', 'reviewed_by',
+    )
+    list_filter = ('resource_type', 'status')
+    search_fields = ('dialogue__title', 'submitted_by__username')
+    readonly_fields = ('created_at', 'reviewed_at')
 
 
 @admin.register(DialogueOrder)

@@ -122,54 +122,66 @@
         </div>
       </section>
 
-      <section class="queue-section">
+      <section v-for="queue in resourceQueues" :key="queue.type" class="queue-section">
         <header class="queue-header">
-          <h2>{{ t('communications.literatureRequests') }}</h2>
-          <span>{{ t('communications.requestCount', { count: pendingLiterature.length }) }}</span>
+          <h2>{{ t(queue.titleKey) }}</h2>
+          <span>{{ t('communications.requestCount', { count: queue.items.length }) }}</span>
         </header>
-        <div v-if="pendingLiterature.length === 0" class="empty-state card">
-          {{ t('communications.emptyLiterature') }}
+        <div v-if="queue.items.length === 0" class="empty-state card">
+          {{ t(queue.emptyKey) }}
         </div>
         <div v-else class="request-list">
-          <article v-for="dialogue in pendingLiterature" :key="`literature-${dialogue.id}`" class="request-row card">
-            <div class="request-main">
-              <RouterLink :to="`/dialogues/${dialogue.id}`" class="request-title">{{ dialogue.title }}</RouterLink>
-              <p class="comment-text">{{ dialogue.recommended_literature }}</p>
-            </div>
-            <div class="request-actions">
-              <button class="btn btn-primary btn-sm" type="button" @click="moderateDialogue(dialogue, 'published')">
-                {{ t('communications.save') }}
-              </button>
-              <button class="btn btn-danger btn-sm" type="button" @click="moderateDialogue(dialogue, 'rejected')">
-                {{ t('communications.cancel') }}
-              </button>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <section class="queue-section">
-        <header class="queue-header">
-          <h2>{{ t('communications.illustrationRequests') }}</h2>
-          <span>{{ t('communications.requestCount', { count: pendingIllustrations.length }) }}</span>
-        </header>
-        <div v-if="pendingIllustrations.length === 0" class="empty-state card">
-          {{ t('communications.emptyIllustrations') }}
-        </div>
-        <div v-else class="request-list">
-          <article v-for="item in pendingIllustrations" :key="`illustration-${item.illustration.id}`" class="request-row card">
-            <div class="request-main illustration-request-main">
-              <img :src="item.illustration.image" :alt="item.illustration.caption" />
+          <article v-for="proposal in queue.items" :key="proposal.id" class="request-row card">
+            <div
+              class="request-main"
+              :class="{ 'illustration-request-main': proposal.resource_type === 'illustration' }"
+            >
+              <img
+                v-if="proposal.resource_type === 'illustration' && proposal.image"
+                :src="proposal.image"
+                :alt="proposal.payload.caption || ''"
+              />
               <div>
-                <RouterLink :to="`/dialogues/${item.dialogue.id}`" class="request-title">{{ item.dialogue.title }}</RouterLink>
-                <p v-if="item.illustration.caption" class="comment-text">{{ item.illustration.caption }}</p>
+                <div class="dialogue-section-tag">{{ proposal.section_name }}</div>
+                <RouterLink :to="`/dialogues/${proposal.dialogue_id}`" class="request-title">
+                  {{ proposal.dialogue_title }}
+                </RouterLink>
+                <div class="request-meta">
+                  <span>{{ proposal.submitted_by_username || t('moderation.unknownAuthor') }}</span>
+                  <span>{{ formatDate(proposal.created_at) }}</span>
+                </div>
+
+                <p v-if="proposal.resource_type === 'literature'" class="comment-text">
+                  {{ proposal.payload.text }}
+                </p>
+                <template v-else-if="proposal.resource_type === 'illustration'">
+                  <p v-if="proposal.payload.caption" class="comment-text">{{ proposal.payload.caption }}</p>
+                </template>
+                <div v-else class="resource-proposal-value">
+                  <strong>{{ proposal.payload.name }}</strong>
+                  <span v-if="proposal.payload.version">{{ proposal.payload.version }}</span>
+                  <small v-if="proposal.resource_type === 'author'">
+                    {{ authorKindLabel(proposal.payload.kind) }}
+                  </small>
+                  <p v-if="proposal.payload.description">{{ proposal.payload.description }}</p>
+                </div>
               </div>
             </div>
             <div class="request-actions">
-              <button class="btn btn-primary btn-sm" type="button" @click="moderateDialogue(item.dialogue, 'published')">
+              <button
+                class="btn btn-primary btn-sm"
+                type="button"
+                :disabled="savingKey === `proposal-${proposal.id}`"
+                @click="moderateResourceProposal(proposal, 'approve')"
+              >
                 {{ t('communications.save') }}
               </button>
-              <button class="btn btn-danger btn-sm" type="button" @click="moderateDialogue(item.dialogue, 'rejected')">
+              <button
+                class="btn btn-danger btn-sm"
+                type="button"
+                :disabled="savingKey === `proposal-${proposal.id}`"
+                @click="moderateResourceProposal(proposal, 'reject')"
+              >
                 {{ t('communications.cancel') }}
               </button>
             </div>
@@ -231,20 +243,41 @@ const { t } = useI18n()
 const auth = useAuthStore()
 const pendingDialogues = ref([])
 const pendingComments = ref([])
+const pendingResourceProposals = ref([])
 const loading = ref(true)
 const savingKey = ref('')
 const error = ref('')
 const changesDialogue = ref(null)
 const changesNote = ref('')
 
-const pendingLiterature = computed(() => {
-  return pendingDialogues.value.filter((dialogue) => dialogue.recommended_literature?.trim())
-})
+const resourceQueueDefinitions = [
+  {
+    type: 'author',
+    titleKey: 'communications.authorRequests',
+    emptyKey: 'communications.emptyAuthors',
+  },
+  {
+    type: 'literature',
+    titleKey: 'communications.literatureRequests',
+    emptyKey: 'communications.emptyLiterature',
+  },
+  {
+    type: 'illustration',
+    titleKey: 'communications.illustrationRequests',
+    emptyKey: 'communications.emptyIllustrations',
+  },
+  {
+    type: 'ai_model',
+    titleKey: 'communications.modelRequests',
+    emptyKey: 'communications.emptyModels',
+  },
+]
 
-const pendingIllustrations = computed(() => {
-  return pendingDialogues.value.flatMap((dialogue) => {
-    return (dialogue.illustrations || []).map((illustration) => ({ dialogue, illustration }))
-  })
+const resourceQueues = computed(() => {
+  return resourceQueueDefinitions.map((queue) => ({
+    ...queue,
+    items: pendingResourceProposals.value.filter((proposal) => proposal.resource_type === queue.type),
+  }))
 })
 
 onMounted(async () => {
@@ -262,15 +295,17 @@ async function loadQueues() {
   loading.value = true
   error.value = ''
   try {
-    const [dialogueRes, commentRes] = await Promise.all([
+    const [dialogueRes, commentRes, resourceProposalRes] = await Promise.all([
       api.get('/dialogues/review/', { params: { status: 'submitted' } }),
       api.get('/comments/review/', { params: { approved: 'false' } }),
+      api.get('/resource-proposals/review/', { params: { status: 'pending' } }),
     ])
     pendingDialogues.value = (dialogueRes.data.results || dialogueRes.data).map((dialogue) => ({
       ...dialogue,
       moderation_note: dialogue.moderation_note || '',
     }))
     pendingComments.value = commentRes.data.results || commentRes.data
+    pendingResourceProposals.value = resourceProposalRes.data.results || resourceProposalRes.data
   } catch {
     error.value = t('common.error')
   } finally {
@@ -331,6 +366,24 @@ async function moderateComment(comment, action) {
   }
 }
 
+async function moderateResourceProposal(proposal, action) {
+  savingKey.value = `proposal-${proposal.id}`
+  error.value = ''
+  try {
+    await api.post(`/resource-proposals/${proposal.id}/moderate/`, { action })
+    pendingResourceProposals.value = pendingResourceProposals.value.filter((item) => item.id !== proposal.id)
+  } catch {
+    error.value = t('common.error')
+  } finally {
+    savingKey.value = ''
+  }
+}
+
+function authorKindLabel(kind) {
+  if (kind === 'organization') return t('dialogue.authorKindOrganization')
+  return t('dialogue.authorKindPerson')
+}
+
 function formatDate(iso) {
   return new Date(iso).toLocaleDateString()
 }
@@ -359,6 +412,27 @@ function formatDate(iso) {
   max-height: 110px;
   object-fit: cover;
   width: 150px;
+}
+
+.resource-proposal-value {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+  margin-top: 0.65rem;
+}
+
+.resource-proposal-value span,
+.resource-proposal-value small {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.resource-proposal-value p {
+  color: var(--color-text-muted);
+  flex-basis: 100%;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
 }
 
 .page-intro {

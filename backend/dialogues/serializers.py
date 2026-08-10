@@ -5,7 +5,7 @@ from django.db import models
 from rest_framework import serializers
 from .models import (
     Section, Interlocutor, Dialogue, DialogueIllustration, DialogueInlineImage,
-    Comment, Like, DialogueOrder,
+    DialogueResourceProposal, Comment, Like, DialogueOrder,
 )
 
 
@@ -123,6 +123,101 @@ class DialogueInlineImageSerializer(serializers.ModelSerializer):
     class Meta:
         model = DialogueInlineImage
         fields = ('id', 'image')
+
+
+class DialogueResourceProposalCreateSerializer(serializers.ModelSerializer):
+    kind = serializers.ChoiceField(
+        choices=('person', 'organization'),
+        required=False,
+        default='person',
+        write_only=True,
+    )
+    name = serializers.CharField(max_length=200, required=False, allow_blank=True, write_only=True)
+    version = serializers.CharField(max_length=100, required=False, allow_blank=True, write_only=True)
+    description = serializers.CharField(max_length=2000, required=False, allow_blank=True, write_only=True)
+    text = serializers.CharField(max_length=10000, required=False, allow_blank=True, write_only=True)
+    caption = serializers.CharField(max_length=2000, required=False, allow_blank=True, write_only=True)
+
+    class Meta:
+        model = DialogueResourceProposal
+        fields = (
+            'resource_type', 'kind', 'name', 'version', 'description',
+            'text', 'caption', 'image',
+        )
+        extra_kwargs = {
+            'image': {'required': False, 'allow_null': True},
+        }
+
+    def validate(self, attrs):
+        resource_type = attrs.get('resource_type')
+        name = (attrs.get('name') or '').strip()
+        version = (attrs.get('version') or '').strip()
+        description = (attrs.get('description') or '').strip()
+        text = (attrs.get('text') or '').strip()
+        caption = (attrs.get('caption') or '').strip()
+        image = attrs.get('image')
+
+        if image and image.size > 10 * 1024 * 1024:
+            raise serializers.ValidationError({'image': 'The image must not exceed 10 MB.'})
+        if image and resource_type != DialogueResourceProposal.RESOURCE_ILLUSTRATION:
+            raise serializers.ValidationError({'image': 'Images are only allowed for illustration proposals.'})
+
+        if resource_type == DialogueResourceProposal.RESOURCE_AUTHOR:
+            if not name:
+                raise serializers.ValidationError({'name': 'Author name is required.'})
+            payload = {
+                'kind': attrs.get('kind') or 'person',
+                'name': name,
+                'version': version,
+                'description': description,
+            }
+        elif resource_type == DialogueResourceProposal.RESOURCE_AI_MODEL:
+            if not name:
+                raise serializers.ValidationError({'name': 'Model name is required.'})
+            payload = {
+                'kind': 'ai_model',
+                'name': name,
+                'version': version,
+                'description': description,
+            }
+        elif resource_type == DialogueResourceProposal.RESOURCE_LITERATURE:
+            if not text:
+                raise serializers.ValidationError({'text': 'Literature text is required.'})
+            payload = {'text': text}
+        elif resource_type == DialogueResourceProposal.RESOURCE_ILLUSTRATION:
+            if not image:
+                raise serializers.ValidationError({'image': 'An image is required.'})
+            payload = {'caption': caption}
+        else:
+            raise serializers.ValidationError({'resource_type': 'Unsupported resource type.'})
+
+        attrs['payload'] = payload
+        return attrs
+
+    def create(self, validated_data):
+        for field in ('kind', 'name', 'version', 'description', 'text', 'caption'):
+            validated_data.pop(field, None)
+        return super().create(validated_data)
+
+
+class DialogueResourceProposalSerializer(serializers.ModelSerializer):
+    dialogue_id = serializers.IntegerField(source='dialogue.id', read_only=True)
+    dialogue_title = serializers.CharField(source='dialogue.title', read_only=True)
+    section_name = serializers.CharField(source='dialogue.section.name', read_only=True)
+    submitted_by_username = serializers.CharField(
+        source='submitted_by.username',
+        read_only=True,
+        default='',
+    )
+
+    class Meta:
+        model = DialogueResourceProposal
+        fields = (
+            'id', 'dialogue_id', 'dialogue_title', 'section_name',
+            'resource_type', 'payload', 'image', 'status',
+            'submitted_by_username', 'created_at', 'reviewed_at',
+        )
+        read_only_fields = fields
 
 
 class CommentSerializer(serializers.ModelSerializer):

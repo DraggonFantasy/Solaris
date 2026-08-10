@@ -53,13 +53,13 @@
           <button type="button" class="btn btn-outline btn-sm" @click="openDialogueInfo(d, 'literature')">
             {{ t('dialogues.literatureShort') }}
           </button>
-          <RouterLink class="btn btn-outline btn-sm" :to="`/dialogues/${d.id}#comments`">
+          <button type="button" class="btn btn-outline btn-sm" @click="openDialogueInfo(d, 'comments')">
             {{ t('dialogues.comments') }}
-          </RouterLink>
+          </button>
           <button type="button" class="btn btn-outline btn-sm" @click="openDialogueInfo(d, 'illustrations')">
             {{ t('dialogues.illustrations') }}
           </button>
-          <button type="button" class="btn btn-outline btn-sm" @click="openDialogueInfo(d, 'model')">
+          <button type="button" class="btn btn-outline btn-sm" @click="openDialogueInfo(d, 'ai_model')">
             {{ t('dialogues.aiModel') }}
           </button>
         </div>
@@ -75,46 +75,13 @@
       @close="resourceModalOpen = false"
     />
 
-    <div v-if="dialogueModal.open" class="dialogue-info-modal" role="dialog" aria-modal="true" @click.self="closeDialogueInfo">
-      <div class="dialogue-info-content card">
-        <button type="button" class="dialogue-info-close" :aria-label="t('common.close')" @click="closeDialogueInfo">
-          ×
-        </button>
-        <h2>{{ dialogueModalTitle }}</h2>
-
-        <div v-if="dialogueModal.type === 'authors'" class="dialogue-info-list">
-          <article v-for="(author, index) in dialogueAuthors" :key="`${author.name}-${index}`" class="dialogue-info-item">
-            <h3>
-              {{ author.name }}
-              <small v-if="author.version">{{ author.version }}</small>
-            </h3>
-            <p v-if="author.description">{{ author.description }}</p>
-          </article>
-          <p v-if="!dialogueAuthors.length" class="text-muted">{{ t('sections.noResources') }}</p>
-        </div>
-
-        <div v-else-if="dialogueModal.type === 'literature'" class="dialogue-info-list">
-          <p v-if="activeDialogue?.recommended_literature" class="pre-line">{{ activeDialogue.recommended_literature }}</p>
-          <p v-else class="text-muted">{{ t('sections.noResources') }}</p>
-        </div>
-
-        <div v-else-if="dialogueModal.type === 'illustrations'" class="dialogue-illustration-grid">
-          <figure v-for="illustration in activeDialogue?.illustrations || []" :key="illustration.id">
-            <img :src="illustration.image" :alt="illustration.caption" />
-            <figcaption v-if="illustration.caption">{{ illustration.caption }}</figcaption>
-          </figure>
-          <p v-if="!activeDialogue?.illustrations?.length" class="text-muted">{{ t('sections.noResources') }}</p>
-        </div>
-
-        <div v-else-if="dialogueModal.type === 'model'" class="dialogue-info-list">
-          <p v-if="activeDialogue?.llm_name">
-            <strong>{{ activeDialogue.llm_name }}</strong>
-            <span v-if="activeDialogue.llm_version"> {{ activeDialogue.llm_version }}</span>
-          </p>
-          <p v-else class="text-muted">{{ t('sections.noResources') }}</p>
-        </div>
-      </div>
-    </div>
+    <DialogueResourcesModal
+      :open="dialogueModal.open"
+      :type="dialogueModal.type"
+      :dialogue="dialogueModal.dialogue"
+      @close="closeDialogueInfo"
+      @updated="updateDialogueInList"
+    />
   </div>
 </template>
 
@@ -124,6 +91,7 @@ import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import api from '../api'
 import { useAuthStore } from '../stores/auth'
+import DialogueResourcesModal from '../components/DialogueResourcesModal.vue'
 import SectionResourcesModal from '../components/SectionResourcesModal.vue'
 
 const { t } = useI18n()
@@ -153,26 +121,6 @@ const resourceTitle = computed(() => {
     illustrations: t('dialogues.illustrations'),
   }
   return `${labels[activeResourceType.value]}: ${section.value.name}`
-})
-
-const activeDialogue = computed(() => dialogueModal.value.dialogue)
-
-const dialogueAuthors = computed(() => {
-  const dialogue = activeDialogue.value
-  if (!dialogue) return []
-  if (dialogue.authors?.length) return dialogue.authors
-  if (dialogue.human_author_username) return [{ name: dialogue.human_author_username }]
-  return []
-})
-
-const dialogueModalTitle = computed(() => {
-  const labels = {
-    authors: t('dialogues.by'),
-    literature: t('dialogues.literature'),
-    illustrations: t('dialogues.illustrations'),
-    model: t('dialogues.aiModel'),
-  }
-  return labels[dialogueModal.value.type] || ''
 })
 
 onMounted(async () => {
@@ -212,6 +160,16 @@ function openDialogueInfo(dialogue, type) {
 
 function closeDialogueInfo() {
   dialogueModal.value = { open: false, type: 'authors', dialogue: null }
+}
+
+function updateDialogueInList(updatedDialogue) {
+  const index = dialogues.value.findIndex((dialogue) => dialogue.id === updatedDialogue.id)
+  if (index >= 0) {
+    dialogues.value[index] = { ...dialogues.value[index], ...updatedDialogue }
+  }
+  if (dialogueModal.value.dialogue?.id === updatedDialogue.id) {
+    dialogueModal.value.dialogue = { ...dialogueModal.value.dialogue, ...updatedDialogue }
+  }
 }
 </script>
 
@@ -316,109 +274,6 @@ function closeDialogueInfo() {
   font-size: 0.76rem;
   padding: 0.32rem 0.52rem;
   white-space: nowrap;
-}
-
-.dialogue-info-modal {
-  align-items: center;
-  background: rgba(17, 24, 39, 0.72);
-  display: flex;
-  inset: 0;
-  justify-content: center;
-  padding: 1.5rem;
-  position: fixed;
-  z-index: 60;
-}
-
-.dialogue-info-content {
-  max-height: calc(100vh - 3rem);
-  max-width: min(760px, calc(100vw - 3rem));
-  overflow: auto;
-  padding: 2rem;
-  position: relative;
-  width: 100%;
-}
-
-.dialogue-info-close {
-  align-items: center;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  cursor: pointer;
-  display: flex;
-  font-size: 1.25rem;
-  height: 2rem;
-  justify-content: center;
-  line-height: 1;
-  position: absolute;
-  right: 1rem;
-  top: 1rem;
-  width: 2rem;
-}
-
-.dialogue-info-content h2 {
-  color: var(--color-primary);
-  font-family: var(--font-serif);
-  font-size: 1.3rem;
-  margin-bottom: 1rem;
-  padding-right: 2.5rem;
-}
-
-.dialogue-info-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.dialogue-info-item {
-  border-bottom: 1px solid var(--color-border);
-  padding-bottom: 1rem;
-}
-
-.dialogue-info-item h3 {
-  font-family: var(--font-serif);
-  font-size: 1rem;
-}
-
-.dialogue-info-item small {
-  color: var(--color-text-muted);
-  font-family: var(--font-sans);
-  font-size: 0.78rem;
-  font-weight: 500;
-}
-
-.dialogue-info-item p,
-.pre-line {
-  color: var(--color-text-muted);
-  line-height: 1.7;
-  white-space: pre-wrap;
-}
-
-.dialogue-illustration-grid {
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-}
-
-.dialogue-illustration-grid figure {
-  margin: 0;
-}
-
-.dialogue-illustration-grid img {
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  display: block;
-  height: 150px;
-  object-fit: contain;
-  width: 100%;
-}
-
-.dialogue-illustration-grid figcaption {
-  color: var(--color-text-muted);
-  font-size: 0.84rem;
-  line-height: 1.5;
-  margin-top: 0.5rem;
-  white-space: pre-wrap;
 }
 
 @media (max-width: 640px) {
