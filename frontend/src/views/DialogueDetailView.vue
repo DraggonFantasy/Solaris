@@ -131,7 +131,7 @@
 
     <!-- Comments -->
     <section v-if="isPublished" id="comments" class="comments-section">
-      <h2>{{ t('dialogues.addComment') }}</h2>
+      <h2>{{ t('dialogues.comments') }}</h2>
       <div class="comments-list">
         <div
           v-for="c in threadedComments"
