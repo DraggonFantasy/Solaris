@@ -315,7 +315,6 @@ const resourceQueues = computed(() => {
 })
 
 onMounted(async () => {
-  window.addEventListener('keydown', handleKeydown)
   if (auth.isAuthenticated && !auth.user) {
     await auth.fetchMe()
   }
@@ -327,7 +326,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', handleKeydown)
+  document.removeEventListener('keydown', handleKeydown, true)
 })
 
 async function loadQueues() {
@@ -425,14 +424,20 @@ function authorKindLabel(kind) {
 
 function openIllustrationPreview(proposal) {
   previewIllustration.value = proposal
+  document.addEventListener('keydown', handleKeydown, true)
 }
 
 function closeIllustrationPreview() {
   previewIllustration.value = null
+  document.removeEventListener('keydown', handleKeydown, true)
 }
 
 function handleKeydown(event) {
-  if (event.key === 'Escape' && previewIllustration.value) {
+  if (
+    (event.key === 'Escape' || event.key === 'Esc' || event.code === 'Escape')
+    && previewIllustration.value
+  ) {
+    event.preventDefault()
     closeIllustrationPreview()
   }
 }
