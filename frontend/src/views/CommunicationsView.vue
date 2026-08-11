@@ -238,12 +238,13 @@
       </form>
     </div>
 
-    <div
+    <dialog
       v-if="previewIllustration"
+      ref="illustrationLightbox"
       class="illustration-lightbox"
-      role="dialog"
-      aria-modal="true"
+      @cancel.prevent="closeIllustrationPreview"
       @click.self="closeIllustrationPreview"
+      @keydown.esc.stop.prevent="closeIllustrationPreview"
     >
       <figure class="illustration-lightbox-content">
         <button
@@ -262,12 +263,12 @@
           {{ previewIllustration.payload.caption }}
         </figcaption>
       </figure>
-    </div>
+    </dialog>
   </div>
 </template>
 
 <script setup>
-import { computed, ref, onBeforeUnmount, onMounted } from 'vue'
+import { computed, nextTick, ref, onBeforeUnmount, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 import api from '../api'
@@ -283,6 +284,7 @@ const error = ref('')
 const changesDialogue = ref(null)
 const changesNote = ref('')
 const previewIllustration = ref(null)
+const illustrationLightbox = ref(null)
 
 const resourceQueueDefinitions = [
   {
@@ -326,7 +328,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  document.removeEventListener('keydown', handleKeydown, true)
+  window.removeEventListener('keydown', handleKeydown, true)
 })
 
 async function loadQueues() {
@@ -422,19 +424,26 @@ function authorKindLabel(kind) {
   return t('dialogue.authorKindPerson')
 }
 
-function openIllustrationPreview(proposal) {
+async function openIllustrationPreview(proposal) {
   previewIllustration.value = proposal
-  document.addEventListener('keydown', handleKeydown, true)
+  window.addEventListener('keydown', handleKeydown, true)
+  await nextTick()
+  if (illustrationLightbox.value && !illustrationLightbox.value.open) {
+    illustrationLightbox.value.showModal()
+  }
 }
 
 function closeIllustrationPreview() {
+  if (illustrationLightbox.value?.open) {
+    illustrationLightbox.value.close()
+  }
   previewIllustration.value = null
-  document.removeEventListener('keydown', handleKeydown, true)
+  window.removeEventListener('keydown', handleKeydown, true)
 }
 
 function handleKeydown(event) {
   if (
-    (event.key === 'Escape' || event.key === 'Esc' || event.code === 'Escape')
+    (event.key === 'Escape' || event.key === 'Esc' || event.code === 'Escape' || event.keyCode === 27)
     && previewIllustration.value
   ) {
     event.preventDefault()
@@ -485,12 +494,22 @@ function formatDate(iso) {
 .illustration-lightbox {
   align-items: center;
   background: rgba(17, 24, 39, 0.88);
+  border: 0;
   display: flex;
+  height: 100%;
   inset: 0;
   justify-content: center;
+  margin: 0;
+  max-height: none;
+  max-width: none;
   padding: 1.5rem;
   position: fixed;
+  width: 100%;
   z-index: 80;
+}
+
+.illustration-lightbox::backdrop {
+  background: rgba(17, 24, 39, 0.88);
 }
 
 .illustration-lightbox-content {
