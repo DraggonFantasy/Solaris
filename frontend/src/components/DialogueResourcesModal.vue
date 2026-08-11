@@ -1,27 +1,31 @@
 <template>
-  <div v-if="open" class="resource-modal" role="dialog" aria-modal="true" @click.self="close">
-    <div class="resource-modal-content card">
-      <button type="button" class="resource-modal-close" :aria-label="t('common.close')" @click="close">
-        ×
-      </button>
-      <header class="resource-modal-header">
-        <h2>{{ typeLabel }}</h2>
-        <p>{{ dialogue?.title }}</p>
-      </header>
+  <Teleport to="body">
+    <div v-if="open" class="resource-modal" role="dialog" aria-modal="true" @click.self="close">
+      <div class="resource-modal-content card">
+        <header class="resource-modal-header">
+          <div>
+            <h2>{{ typeLabel }}</h2>
+            <p>{{ dialogue?.title }}</p>
+          </div>
+          <button type="button" class="resource-modal-close" :aria-label="t('common.close')" @click="close">
+            ×
+          </button>
+        </header>
 
-      <div v-if="loading" class="text-muted">{{ t('common.loading') }}</div>
-      <div v-else-if="loadError" class="alert alert-error">{{ loadError }}</div>
+        <div class="resource-modal-body">
+          <div v-if="loading" class="text-muted">{{ t('common.loading') }}</div>
+          <div v-else-if="loadError" class="alert alert-error">{{ loadError }}</div>
 
-      <template v-else-if="detail">
-        <DialogueComments
-          v-if="type === 'comments'"
-          :dialogue="detail"
-          :show-title="false"
-          compact
-          @updated="updateDialogue"
-        />
+          <template v-else-if="detail">
+            <DialogueComments
+              v-if="type === 'comments'"
+              :dialogue="detail"
+              :show-title="false"
+              compact
+              @updated="updateDialogue"
+            />
 
-        <template v-else>
+            <template v-else>
           <div v-if="currentItems.length" class="resource-list">
             <article
               v-for="(item, index) in currentItems"
@@ -152,10 +156,12 @@
           >
             {{ t('resources.loginToAdd') }}
           </RouterLink>
-        </template>
-      </template>
+            </template>
+          </template>
+        </div>
+      </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -383,17 +389,19 @@ function close() {
   display: flex;
   inset: 0;
   justify-content: center;
-  padding: 1.5rem;
+  padding: clamp(0.75rem, 2vw, 1.5rem);
   position: fixed;
-  z-index: 60;
+  z-index: 200;
 }
 
 .resource-modal-content {
+  display: flex;
+  flex-direction: column;
   max-height: calc(100vh - 3rem);
+  max-height: min(760px, 85dvh);
   max-width: min(760px, calc(100vw - 3rem));
-  overflow: auto;
-  padding: 2rem;
-  position: relative;
+  overflow: hidden;
+  padding: 0;
   width: 100%;
 }
 
@@ -408,15 +416,22 @@ function close() {
   height: 2rem;
   justify-content: center;
   line-height: 1;
-  position: absolute;
-  right: 1rem;
-  top: 1rem;
+  flex: 0 0 2rem;
   width: 2rem;
 }
 
 .resource-modal-header {
-  margin-bottom: 1.25rem;
-  padding-right: 2.5rem;
+  align-items: flex-start;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  flex: 0 0 auto;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+}
+
+.resource-modal-header > div {
+  min-width: 0;
 }
 
 .resource-modal-header h2 {
@@ -429,6 +444,16 @@ function close() {
 .resource-modal-header p {
   color: var(--color-text-muted);
   font-size: 0.86rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.resource-modal-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1.5rem;
+  scrollbar-gutter: stable;
 }
 
 .resource-list {
@@ -556,5 +581,16 @@ function close() {
   display: flex;
   gap: 0.75rem;
   margin-top: 1rem;
+}
+
+@media (max-width: 600px) {
+  .resource-modal-content {
+    max-width: calc(100vw - 1.5rem);
+  }
+
+  .resource-modal-header,
+  .resource-modal-body {
+    padding: 1rem;
+  }
 }
 </style>

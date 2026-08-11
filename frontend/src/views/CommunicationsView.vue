@@ -706,7 +706,7 @@ function formatDate(iso) {
   justify-content: center;
   padding: 1.5rem;
   position: fixed;
-  z-index: 70;
+  z-index: 200;
 }
 
 @media (max-width: 720px) {

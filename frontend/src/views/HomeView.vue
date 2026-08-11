@@ -17,15 +17,21 @@
       </div>
     </section>
 
-    <div v-if="showAbout" class="about-modal" role="dialog" aria-modal="true" @click.self="showAbout = false">
-      <div class="about-modal-content card">
-        <button type="button" class="about-modal-close" :aria-label="t('common.close')" @click="showAbout = false">
-          ×
-        </button>
-        <h2>{{ t('home.aboutProject') }}</h2>
-        <MarkdownRenderer :content="t('home.aboutText')" />
+    <Teleport to="body">
+      <div v-if="showAbout" class="about-modal" role="dialog" aria-modal="true" @click.self="showAbout = false">
+        <div class="about-modal-content card">
+          <header class="about-modal-header">
+            <h2>{{ t('home.aboutProject') }}</h2>
+            <button type="button" class="about-modal-close" :aria-label="t('common.close')" @click="showAbout = false">
+              ×
+            </button>
+          </header>
+          <div class="about-modal-body">
+            <MarkdownRenderer :content="t('home.aboutText')" />
+          </div>
+        </div>
       </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
@@ -96,24 +102,46 @@ const showAbout = ref(false)
   display: flex;
   inset: 0;
   justify-content: center;
-  padding: 1.5rem;
+  padding: clamp(0.75rem, 2vw, 1.5rem);
   position: fixed;
-  z-index: 50;
+  z-index: 200;
 }
 
 .about-modal-content {
+  display: flex;
+  flex-direction: column;
   max-height: calc(100vh - 3rem);
+  max-height: min(760px, 85dvh);
   max-width: min(820px, calc(100vw - 3rem));
-  overflow: auto;
-  padding: 2rem;
-  position: relative;
+  overflow: hidden;
+  padding: 0;
+  width: 100%;
 }
 
-.about-modal-content h2 {
+.about-modal-header {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  flex: 0 0 auto;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+}
+
+.about-modal-header h2 {
   color: var(--color-primary);
   font-family: var(--font-serif);
   font-size: 1.4rem;
-  margin-bottom: 1rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.about-modal-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1.5rem;
+  scrollbar-gutter: stable;
 }
 
 .about-modal-close {
@@ -127,9 +155,18 @@ const showAbout = ref(false)
   height: 2rem;
   justify-content: center;
   line-height: 1;
-  position: absolute;
-  right: 1rem;
-  top: 1rem;
+  flex: 0 0 2rem;
   width: 2rem;
+}
+
+@media (max-width: 600px) {
+  .about-modal-content {
+    max-width: calc(100vw - 1.5rem);
+  }
+
+  .about-modal-header,
+  .about-modal-body {
+    padding: 1rem;
+  }
 }
 </style>

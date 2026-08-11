@@ -555,7 +555,7 @@ async function updateDialogueStatus() {
   justify-content: center;
   padding: 1.5rem;
   position: fixed;
-  z-index: 50;
+  z-index: 200;
 }
 
 .illustration-modal-content {

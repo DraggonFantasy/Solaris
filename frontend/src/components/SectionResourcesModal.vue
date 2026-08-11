@@ -1,49 +1,55 @@
 <template>
-  <div v-if="open" class="resource-modal" role="dialog" aria-modal="true" @click.self="$emit('close')">
-    <div class="resource-modal-content card">
-      <button type="button" class="resource-modal-close" :aria-label="t('common.close')" @click="$emit('close')">
-        ×
-      </button>
-      <h2>{{ title }}</h2>
+  <Teleport to="body">
+    <div v-if="open" class="resource-modal" role="dialog" aria-modal="true" @click.self="$emit('close')">
+      <div class="resource-modal-content card">
+        <header class="resource-modal-header">
+          <h2>{{ title }}</h2>
+          <button type="button" class="resource-modal-close" :aria-label="t('common.close')" @click="$emit('close')">
+            ×
+          </button>
+        </header>
 
-      <div v-if="loading" class="text-muted">{{ t('common.loading') }}</div>
-      <div v-else-if="!items.length" class="text-muted">{{ t('sections.noResources') }}</div>
+        <div class="resource-modal-body">
+          <div v-if="loading" class="text-muted">{{ t('common.loading') }}</div>
+          <div v-else-if="!items.length" class="text-muted">{{ t('sections.noResources') }}</div>
 
-      <div v-else-if="type === 'literature'" class="resource-list">
-        <article v-for="(item, index) in items" :key="`${item.dialogue_id}-${index}`" class="resource-item">
-          <h3>{{ item.dialogue_title }}</h3>
-          <p>{{ item.text }}</p>
-        </article>
-      </div>
+          <div v-else-if="type === 'literature'" class="resource-list">
+            <article v-for="(item, index) in items" :key="`${item.dialogue_id}-${index}`" class="resource-item">
+              <h3>{{ item.dialogue_title }}</h3>
+              <p>{{ item.text }}</p>
+            </article>
+          </div>
 
-      <div v-else-if="type === 'authors'" class="resource-list">
-        <article v-for="item in authorItems" :key="item.key" class="resource-item">
-          <h3>
-            {{ item.name }}
-            <small v-if="item.version">{{ item.version }}</small>
-          </h3>
-          <p v-if="item.description">{{ item.description }}</p>
-          <ul class="author-dialogues">
-            <li v-for="dialogue in item.dialogues" :key="dialogue.id">
-              <RouterLink :to="`/dialogues/${dialogue.id}`">
-                {{ dialogue.title }}
-              </RouterLink>
-            </li>
-          </ul>
-        </article>
-      </div>
+          <div v-else-if="type === 'authors'" class="resource-list">
+            <article v-for="item in authorItems" :key="item.key" class="resource-item">
+              <h3>
+                {{ item.name }}
+                <small v-if="item.version">{{ item.version }}</small>
+              </h3>
+              <p v-if="item.description">{{ item.description }}</p>
+              <ul class="author-dialogues">
+                <li v-for="dialogue in item.dialogues" :key="dialogue.id">
+                  <RouterLink :to="`/dialogues/${dialogue.id}`">
+                    {{ dialogue.title }}
+                  </RouterLink>
+                </li>
+              </ul>
+            </article>
+          </div>
 
-      <div v-else-if="type === 'illustrations'" class="illustration-resource-grid">
-        <figure v-for="item in items" :key="item.id" class="illustration-resource">
-          <img :src="item.image" :alt="item.caption" />
-          <figcaption>
-            <strong>{{ item.dialogue_title }}</strong>
-            <span v-if="item.caption">{{ item.caption }}</span>
-          </figcaption>
-        </figure>
+          <div v-else-if="type === 'illustrations'" class="illustration-resource-grid">
+            <figure v-for="item in items" :key="item.id" class="illustration-resource">
+              <img :src="item.image" :alt="item.caption" />
+              <figcaption>
+                <strong>{{ item.dialogue_title }}</strong>
+                <span v-if="item.caption">{{ item.caption }}</span>
+              </figcaption>
+            </figure>
+          </div>
+        </div>
       </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -99,18 +105,30 @@ const authorItems = computed(() => {
   display: flex;
   inset: 0;
   justify-content: center;
-  padding: 1.5rem;
+  padding: clamp(0.75rem, 2vw, 1.5rem);
   position: fixed;
-  z-index: 60;
+  z-index: 200;
 }
 
 .resource-modal-content {
+  display: flex;
+  flex-direction: column;
   max-height: calc(100vh - 3rem);
+  max-height: min(760px, 85dvh);
   max-width: min(860px, calc(100vw - 3rem));
-  overflow: auto;
-  padding: 2rem;
-  position: relative;
+  overflow: hidden;
+  padding: 0;
   width: 100%;
+}
+
+.resource-modal-header {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  flex: 0 0 auto;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
 }
 
 .resource-modal-close {
@@ -124,18 +142,24 @@ const authorItems = computed(() => {
   height: 2rem;
   justify-content: center;
   line-height: 1;
-  position: absolute;
-  right: 1rem;
-  top: 1rem;
+  flex: 0 0 2rem;
   width: 2rem;
 }
 
-.resource-modal-content h2 {
+.resource-modal-header h2 {
   color: var(--color-primary);
   font-family: var(--font-serif);
   font-size: 1.35rem;
-  margin-bottom: 1rem;
-  padding-right: 2.5rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.resource-modal-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1.5rem;
+  scrollbar-gutter: stable;
 }
 
 .resource-list {
@@ -232,5 +256,16 @@ const authorItems = computed(() => {
 
 .illustration-resource strong {
   color: var(--color-text);
+}
+
+@media (max-width: 600px) {
+  .resource-modal-content {
+    max-width: calc(100vw - 1.5rem);
+  }
+
+  .resource-modal-header,
+  .resource-modal-body {
+    padding: 1rem;
+  }
 }
 </style>
