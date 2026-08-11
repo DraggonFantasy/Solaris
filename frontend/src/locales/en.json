@@ -112,6 +112,7 @@
     "submitError": "Could not submit the proposal.",
     "pendingTitle": "Pending review",
     "pending": "Pending moderation",
+    "viewFullImage": "View full-size image",
     "loginToAdd": "Log in to add"
   },
   "dialogue": {

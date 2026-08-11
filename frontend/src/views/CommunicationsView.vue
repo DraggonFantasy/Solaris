@@ -136,11 +136,18 @@
               class="request-main"
               :class="{ 'illustration-request-main': proposal.resource_type === 'illustration' }"
             >
-              <img
+              <button
                 v-if="proposal.resource_type === 'illustration' && proposal.image"
-                :src="proposal.image"
-                :alt="proposal.payload.caption || ''"
-              />
+                class="illustration-preview-button"
+                type="button"
+                :aria-label="t('resources.viewFullImage')"
+                @click="openIllustrationPreview(proposal)"
+              >
+                <img
+                  :src="proposal.image"
+                  :alt="proposal.payload.caption || proposal.dialogue_title"
+                />
+              </button>
               <div>
                 <div class="dialogue-section-tag">{{ proposal.section_name }}</div>
                 <RouterLink :to="`/dialogues/${proposal.dialogue_id}`" class="request-title">
@@ -230,11 +237,37 @@
         </footer>
       </form>
     </div>
+
+    <div
+      v-if="previewIllustration"
+      class="illustration-lightbox"
+      role="dialog"
+      aria-modal="true"
+      @click.self="closeIllustrationPreview"
+    >
+      <figure class="illustration-lightbox-content">
+        <button
+          type="button"
+          class="illustration-lightbox-close"
+          :aria-label="t('common.close')"
+          @click="closeIllustrationPreview"
+        >
+          ×
+        </button>
+        <img
+          :src="previewIllustration.image"
+          :alt="previewIllustration.payload.caption || previewIllustration.dialogue_title"
+        />
+        <figcaption v-if="previewIllustration.payload.caption">
+          {{ previewIllustration.payload.caption }}
+        </figcaption>
+      </figure>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onBeforeUnmount, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 import api from '../api'
@@ -249,6 +282,7 @@ const savingKey = ref('')
 const error = ref('')
 const changesDialogue = ref(null)
 const changesNote = ref('')
+const previewIllustration = ref(null)
 
 const resourceQueueDefinitions = [
   {
@@ -281,6 +315,7 @@ const resourceQueues = computed(() => {
 })
 
 onMounted(async () => {
+  window.addEventListener('keydown', handleKeydown)
   if (auth.isAuthenticated && !auth.user) {
     await auth.fetchMe()
   }
@@ -289,6 +324,10 @@ onMounted(async () => {
   } else {
     await loadQueues()
   }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown)
 })
 
 async function loadQueues() {
@@ -384,6 +423,20 @@ function authorKindLabel(kind) {
   return t('dialogue.authorKindPerson')
 }
 
+function openIllustrationPreview(proposal) {
+  previewIllustration.value = proposal
+}
+
+function closeIllustrationPreview() {
+  previewIllustration.value = null
+}
+
+function handleKeydown(event) {
+  if (event.key === 'Escape' && previewIllustration.value) {
+    closeIllustrationPreview()
+  }
+}
+
 function formatDate(iso) {
   return new Date(iso).toLocaleDateString()
 }
@@ -407,11 +460,73 @@ function formatDate(iso) {
   gap: 1rem;
 }
 
-.illustration-request-main img {
+.illustration-preview-button {
+  background: transparent;
+  border: 0;
+  cursor: zoom-in;
+  flex: 0 0 150px;
+  padding: 0;
+}
+
+.illustration-preview-button img {
   border-radius: var(--radius);
+  display: block;
+  height: 110px;
   max-height: 110px;
   object-fit: cover;
-  width: 150px;
+  width: 100%;
+}
+
+.illustration-lightbox {
+  align-items: center;
+  background: rgba(17, 24, 39, 0.88);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 1.5rem;
+  position: fixed;
+  z-index: 80;
+}
+
+.illustration-lightbox-content {
+  margin: 0;
+  max-height: calc(100vh - 3rem);
+  max-width: calc(100vw - 3rem);
+  position: relative;
+}
+
+.illustration-lightbox-content img {
+  display: block;
+  max-height: calc(100vh - 7rem);
+  max-width: calc(100vw - 3rem);
+  object-fit: contain;
+}
+
+.illustration-lightbox-content figcaption {
+  color: white;
+  line-height: 1.5;
+  margin-top: 0.75rem;
+  max-width: 900px;
+  white-space: pre-wrap;
+}
+
+.illustration-lightbox-close {
+  align-items: center;
+  background: rgba(17, 24, 39, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-radius: 999px;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  font-size: 1.4rem;
+  height: 2.25rem;
+  justify-content: center;
+  line-height: 1;
+  position: absolute;
+  right: 0.75rem;
+  top: 0.75rem;
+  width: 2.25rem;
+  z-index: 1;
 }
 
 .resource-proposal-value {
