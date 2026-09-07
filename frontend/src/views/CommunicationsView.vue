@@ -31,6 +31,7 @@
                 {{ dialogue.title }}
               </RouterLink>
               <p v-if="dialogue.summary" class="request-summary">{{ dialogue.summary }}</p>
+              <DialogueImportWarning :error="dialogue.import_error" />
               <div class="request-meta">
                 <span>{{ dialogue.human_author_username || t('moderation.unknownAuthor') }}</span>
                 <span>{{ formatDate(dialogue.created_at) }}</span>
@@ -159,7 +160,8 @@
                 </div>
 
                 <p v-if="proposal.resource_type === 'literature'" class="comment-text">
-                  {{ proposal.payload.text }}
+                  <strong>{{ proposal.payload.title || proposal.payload.text }}</strong>
+                  <span v-if="proposal.payload.author"> — {{ proposal.payload.author }}</span>
                 </p>
                 <template v-else-if="proposal.resource_type === 'illustration'">
                   <p v-if="proposal.payload.caption" class="comment-text">{{ proposal.payload.caption }}</p>
@@ -170,7 +172,10 @@
                   <small v-if="proposal.resource_type === 'author'">
                     {{ authorKindLabel(proposal.payload.kind) }}
                   </small>
-                  <p v-if="proposal.payload.description">{{ proposal.payload.description }}</p>
+                  <p v-if="proposal.payload.profile">{{ proposal.payload.profile }}</p>
+                  <p v-if="proposal.payload.short_info || proposal.payload.description">
+                    {{ proposal.payload.short_info || proposal.payload.description }}
+                  </p>
                 </div>
               </div>
             </div>
@@ -189,6 +194,79 @@
                 :disabled="savingKey === `proposal-${proposal.id}`"
                 @click="moderateResourceProposal(proposal, 'reject')"
               >
+                {{ t('communications.cancel') }}
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
+    </div>
+
+    <div v-else class="author-queues">
+      <div v-if="error" class="alert alert-error">{{ error }}</div>
+
+      <section class="queue-section">
+        <header class="queue-header">
+          <h2>{{ t('communications.dialogueRequests') }}</h2>
+          <span>{{ t('communications.requestCount', { count: pendingDialogues.length }) }}</span>
+        </header>
+        <div v-if="!pendingDialogues.length" class="empty-state card">{{ t('communications.emptyDialogues') }}</div>
+        <div v-else class="request-list">
+          <article v-for="dialogue in pendingDialogues" :key="dialogue.id" class="request-row card">
+            <div class="request-main">
+              <RouterLink :to="`/dialogues/${dialogue.id}`" class="request-title">{{ dialogue.title }}</RouterLink>
+              <div class="request-meta">
+                <span>{{ dialogue.section_name }}</span>
+                <span>{{ formatDate(dialogue.created_at) }}</span>
+                <span class="pending-badge">{{ t('dialogue.status.submitted') }}</span>
+              </div>
+            </div>
+            <div class="request-actions">
+              <button class="btn btn-outline btn-sm" :disabled="savingKey === `dialogue-${dialogue.id}`" @click="withdrawDialogue(dialogue)">
+                {{ t('communications.cancel') }}
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="queue-section">
+        <header class="queue-header">
+          <h2>{{ t('communications.commentRequests') }}</h2>
+          <span>{{ t('communications.requestCount', { count: pendingComments.length }) }}</span>
+        </header>
+        <div v-if="!pendingComments.length" class="empty-state card">{{ t('communications.emptyComments') }}</div>
+        <div v-else class="request-list">
+          <article v-for="comment in pendingComments" :key="comment.id" class="request-row card">
+            <div class="request-main">
+              <RouterLink :to="`/dialogues/${comment.dialogue_id}`" class="request-title">{{ comment.dialogue_title }}</RouterLink>
+              <p class="comment-text">{{ comment.text }}</p>
+              <span class="pending-badge">{{ t('dialogue.status.submitted') }}</span>
+            </div>
+            <div class="request-actions">
+              <button class="btn btn-outline btn-sm" :disabled="savingKey === `comment-${comment.id}`" @click="withdrawComment(comment)">
+                {{ t('communications.cancel') }}
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section v-for="queue in resourceQueues" :key="queue.type" class="queue-section">
+        <header class="queue-header">
+          <h2>{{ t(queue.titleKey) }}</h2>
+          <span>{{ t('communications.requestCount', { count: queue.items.length }) }}</span>
+        </header>
+        <div v-if="!queue.items.length" class="empty-state card">{{ t(queue.emptyKey) }}</div>
+        <div v-else class="request-list">
+          <article v-for="proposal in queue.items" :key="proposal.id" class="request-row card">
+            <div class="request-main">
+              <RouterLink :to="`/dialogues/${proposal.dialogue_id}`" class="request-title">{{ proposal.dialogue_title }}</RouterLink>
+              <p class="comment-text">{{ proposalSummary(proposal) }}</p>
+              <span class="pending-badge">{{ t('dialogue.status.submitted') }}</span>
+            </div>
+            <div class="request-actions">
+              <button class="btn btn-outline btn-sm" :disabled="savingKey === `proposal-${proposal.id}`" @click="withdrawProposal(proposal)">
                 {{ t('communications.cancel') }}
               </button>
             </div>
@@ -272,6 +350,7 @@ import { computed, nextTick, ref, onBeforeUnmount, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 import api from '../api'
+import DialogueImportWarning from '../components/DialogueImportWarning.vue'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -321,7 +400,7 @@ onMounted(async () => {
     await auth.fetchMe()
   }
   if (!auth.isStaff) {
-    loading.value = false
+    await loadAuthorQueues()
   } else {
     await loadQueues()
   }
@@ -351,6 +430,58 @@ async function loadQueues() {
   } finally {
     loading.value = false
   }
+}
+
+async function loadAuthorQueues() {
+  loading.value = true
+  error.value = ''
+  try {
+    const { data } = await api.get('/communications/mine/')
+    pendingDialogues.value = data.dialogues || []
+    pendingComments.value = data.comments || []
+    pendingResourceProposals.value = data.resource_proposals || []
+  } catch {
+    error.value = t('common.error')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function withdrawDialogue(dialogue) {
+  savingKey.value = `dialogue-${dialogue.id}`
+  try {
+    await api.post(`/dialogues/${dialogue.id}/withdraw/`)
+    pendingDialogues.value = pendingDialogues.value.filter((item) => item.id !== dialogue.id)
+  } finally {
+    savingKey.value = ''
+  }
+}
+
+async function withdrawComment(comment) {
+  savingKey.value = `comment-${comment.id}`
+  try {
+    await api.post(`/comments/${comment.id}/withdraw/`)
+    pendingComments.value = pendingComments.value.filter((item) => item.id !== comment.id)
+  } finally {
+    savingKey.value = ''
+  }
+}
+
+async function withdrawProposal(proposal) {
+  savingKey.value = `proposal-${proposal.id}`
+  try {
+    await api.post(`/resource-proposals/${proposal.id}/withdraw/`)
+    pendingResourceProposals.value = pendingResourceProposals.value.filter((item) => item.id !== proposal.id)
+  } finally {
+    savingKey.value = ''
+  }
+}
+
+function proposalSummary(proposal) {
+  const payload = proposal.payload || {}
+  if (proposal.resource_type === 'literature') return [payload.author, payload.title || payload.text].filter(Boolean).join(' — ')
+  if (proposal.resource_type === 'illustration') return payload.caption || t('dialogues.illustrations')
+  return [payload.name, payload.version, payload.profile || payload.short_info || payload.description].filter(Boolean).join(' — ')
 }
 
 function openChangesModal(dialogue) {
@@ -664,6 +795,21 @@ function formatDate(iso) {
   gap: 0.75rem;
   margin-top: 0.55rem;
 }
+
+.pending-badge {
+  background: #fef3c7;
+  border-radius: 999px;
+  color: #92400e;
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  margin-top: 0.55rem;
+  padding: 0.1rem 0.45rem;
+}
+
+.pending-badge::before { content: '●'; font-size: 0.55rem; margin-right: 0.3rem; }
+
+.request-meta .pending-badge { margin-top: 0; }
 
 .request-note {
   background: var(--color-bg);

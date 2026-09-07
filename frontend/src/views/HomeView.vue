@@ -2,11 +2,19 @@
   <div class="home">
     <section class="hero">
       <div class="hero-content">
-        <img class="hero-logo" src="/logo.png" alt="Солярис" />
-        <h1 class="hero-title">СОЛЯРИС</h1>
+        <img class="hero-logo" src="/logo.png" alt="Соляріс" />
+        <h1 class="hero-title">Соляріс</h1>
         <p class="hero-tagline">{{ t('home.tagline') }}</p>
         <p class="hero-brief">{{ t('home.brief') }}</p>
         <div class="hero-actions">
+          <a
+            class="btn btn-outline"
+            href="/documents/solaris-project.pdf"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {{ t('home.projectIdea') }}
+          </a>
           <button type="button" class="btn btn-primary" @click="showAbout = true">
             {{ t('home.aboutProject') }}
           </button>

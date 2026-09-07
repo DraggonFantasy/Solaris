@@ -31,6 +31,7 @@
             required
             @blur="syncSourceModelAuthor"
           />
+          <p class="field-help">{{ t('dialogue.sourceUrlAutoImportHint') }}</p>
         </div>
 
         <div class="form-group">
@@ -46,6 +47,7 @@
                 <strong>{{ author.name }}</strong>
                 <span>{{ authorKindLabel(author.kind) }}</span>
                 <small v-if="author.version">{{ author.version }}</small>
+                <small v-if="author.profile">{{ author.profile }}</small>
               </div>
               <div v-if="canModifyAuthor(author)" class="chip-actions">
                 <button
@@ -251,7 +253,7 @@
           />
         </div>
 
-        <div class="form-group">
+        <div v-if="authorDraft.kind === 'ai_model'" class="form-group">
           <label>{{ t('dialogue.authorVersion') }}</label>
           <input
             v-model="authorDraft.version"
@@ -260,10 +262,16 @@
           />
         </div>
 
+        <div v-else class="form-group">
+          <label>{{ t('dialogue.authorProfile') }}</label>
+          <input v-model.trim="authorDraft.profile" type="text" maxlength="32" />
+          <small>{{ t('profile.bioHint') }}</small>
+        </div>
+
         <div class="form-group">
-          <label>{{ t('dialogue.authorDescription') }}</label>
+          <label>{{ t('dialogue.authorShortInfo') }}</label>
           <textarea
-            v-model="authorDraft.description"
+            v-model="authorDraft.short_info"
             rows="3"
             :placeholder="t('dialogue.authorDescriptionPlaceholder')"
           />
@@ -303,6 +311,8 @@ const showAuthorModal = ref(false)
 const editingAuthorIndex = ref(null)
 const showImportMenu = ref(false)
 const importingShare = ref(false)
+const importedSourceUrl = ref('')
+const importError = ref('')
 const sections = ref([])
 const authors = ref([])
 const existingIllustrations = ref([])
@@ -328,7 +338,8 @@ const authorDraft = ref({
   kind: 'ai_model',
   name: '',
   version: '',
-  description: '',
+  profile: '',
+  short_info: '',
 })
 
 const isEditing = computed(() => route.name === 'edit-dialogue')
@@ -425,11 +436,13 @@ async function submit(submitForReview) {
   error.value = ''
   submitting.value = true
   try {
+    await ensureInternalDialogueCopy()
     syncSourceModelAuthor()
     persistAuthorPresets()
     const firstAiAuthor = authors.value.find((author) => author.kind === 'ai_model')
     const payload = {
       ...form.value,
+      import_error: importError.value,
       authors: authors.value.map(({ localId, ...author }) => author),
       llm_name: firstAiAuthor?.name || '',
       llm_version: firstAiAuthor?.version || '',
@@ -463,7 +476,7 @@ async function submit(submitForReview) {
   } catch (err) {
     error.value = err.response?.data
       ? JSON.stringify(err.response.data)
-      : t('common.error')
+      : (err.message || t('common.error'))
   } finally {
     submitting.value = false
   }
@@ -483,6 +496,7 @@ async function loadDialogue() {
     recommended_literature: data.recommended_literature || '',
     review_note: data.review_note || '',
   }
+  importedSourceUrl.value = data.text ? (data.source_url || '') : ''
   authors.value = (data.authors || []).map((author) => ({
     ...author,
     localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
@@ -507,6 +521,8 @@ function initDefaultAuthor() {
     kind: 'person',
     name: displayName,
     version: '',
+    profile: auth.user.bio || '',
+    short_info: '',
     description: auth.user.bio || '',
     is_current_user: true,
   })
@@ -539,7 +555,9 @@ function saveAuthor() {
     kind: authorDraft.value.kind,
     name,
     version: authorDraft.value.version.trim(),
-    description: authorDraft.value.description.trim(),
+    profile: authorDraft.value.profile.trim().slice(0, 32),
+    short_info: authorDraft.value.short_info.trim(),
+    description: authorDraft.value.profile.trim().slice(0, 32),
   }
   const currentIndex = editingAuthorIndex.value
   const duplicate = authors.value.some((item, index) => {
@@ -581,7 +599,8 @@ function openAuthorModal(index = null) {
       kind: author.kind || 'person',
       name: author.name || '',
       version: author.version || '',
-      description: author.description || '',
+      profile: author.profile || author.description || '',
+      short_info: author.short_info || '',
     }
   }
   showAuthorModal.value = true
@@ -590,7 +609,7 @@ function openAuthorModal(index = null) {
 function closeAuthorModal() {
   showAuthorModal.value = false
   editingAuthorIndex.value = null
-  authorDraft.value = { kind: 'ai_model', name: '', version: '', description: '' }
+  authorDraft.value = { kind: 'ai_model', name: '', version: '', profile: '', short_info: '' }
 }
 
 function authorKindLabel(kind) {
@@ -697,29 +716,60 @@ async function handleImport(source) {
   importingShare.value = true
   try {
     const { data } = await api.post('/dialogues/import-share/', { url })
-    form.value.source_url = url
     const suffix = form.value.text && !form.value.text.endsWith('\n\n')
       ? (form.value.text.endsWith('\n') ? '\n' : '\n\n')
       : ''
-    form.value.text = `${form.value.text}${suffix}${data.markdown}`
-    if (!form.value.title.trim() && data.title) {
-      form.value.title = data.title
-    }
-    const serviceAuthor = importSources.find((item) => item.name.toLowerCase() === data.service)
-    if (serviceAuthor && !authors.value.some((author) => author.kind === 'ai_model' && author.name === serviceAuthor.name)) {
-      authors.value.push({
-        localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
-        kind: 'ai_model',
-        name: serviceAuthor.name,
-        version: '',
-        description: '',
-        is_source_model: true,
-      })
-    }
+    applyImportedDialogue(data, url, `${form.value.text}${suffix}${data.markdown}`)
   } catch (err) {
     textStepError.value = err.response?.data?.detail || t('dialogue.importError')
   } finally {
     importingShare.value = false
+  }
+}
+
+async function ensureInternalDialogueCopy() {
+  const url = form.value.source_url.trim()
+  if (form.value.text.trim() && importedSourceUrl.value === url) return
+
+  importingShare.value = true
+  // A copy from the previous URL must not be published as the new dialogue.
+  form.value.text = ''
+  importedSourceUrl.value = ''
+  importError.value = ''
+  try {
+    const { data } = await api.post('/dialogues/import-share/', { url }, { timeout: 60000 })
+    if (!data.markdown?.trim()) throw new Error(t('dialogue.importEmpty'))
+    applyImportedDialogue(data, url, data.markdown)
+  } catch (err) {
+    const detail = err.response?.data?.detail
+    importError.value = (typeof detail === 'string' && detail.trim()
+      ? detail
+      : (err.message || t('dialogue.automaticImportError'))).slice(0, 2000)
+  } finally {
+    importingShare.value = false
+  }
+}
+
+function applyImportedDialogue(data, url, markdown) {
+  importError.value = ''
+  form.value.source_url = url
+  form.value.text = markdown
+  importedSourceUrl.value = url
+  if (!form.value.title.trim() && data.title) {
+    form.value.title = data.title
+  }
+  const serviceAuthor = importSources.find((item) => item.name.toLowerCase() === data.service)
+  if (serviceAuthor && !authors.value.some((author) => author.kind === 'ai_model' && author.name === serviceAuthor.name)) {
+    authors.value.push({
+      localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+      kind: 'ai_model',
+      name: serviceAuthor.name,
+      version: '',
+      profile: '',
+      short_info: '',
+      description: '',
+      is_source_model: true,
+    })
   }
 }
 
@@ -756,6 +806,8 @@ function syncSourceModelAuthor() {
     kind: 'ai_model',
     name: provider,
     version: '',
+    profile: '',
+    short_info: '',
     description: '',
     is_source_model: true,
   })

@@ -25,9 +25,224 @@ from .gemini_illustrations import (
     is_gemini_share_url,
 )
 from .models import (
-    AuditLog, Dialogue, DialogueIllustration, DialogueInlineImage,
-    DialogueResourceProposal, Section,
+    AuditLog, Comment, Dialogue, DialogueIllustration, DialogueInlineImage,
+    DialogueLiterature, DialogueResourceProposal, Section,
 )
+
+
+class DialogueImportFailureTests(APITestCase):
+    def setUp(self):
+        self.author = get_user_model().objects.create_user(username='import-author')
+        self.moderator = get_user_model().objects.create_user(username='import-moderator', is_staff=True)
+        self.section = Section.objects.create(name='Imports', slug='imports')
+        self.reason = 'The external resource returned HTTP 403.'
+        self.client.force_authenticate(self.author)
+
+    def create_failed_import(self, status=Dialogue.STATUS_SUBMITTED):
+        response = self.client.post('/api/dialogues/', {
+            'title': 'External dialogue',
+            'section': self.section.id,
+            'source_url': 'https://claude.ai/share/example',
+            'text': '',
+            'import_error': self.reason,
+            'status': status,
+        }, format='json')
+        self.assertEqual(response.status_code, 201)
+        self.assertNotIn('import_error', response.data)
+        return Dialogue.objects.get(pk=response.data['id'])
+
+    def test_failed_import_can_be_submitted_and_published_without_internal_text(self):
+        dialogue = self.create_failed_import()
+        self.assertEqual(dialogue.import_error, self.reason)
+        self.assertEqual(dialogue.status, Dialogue.STATUS_SUBMITTED)
+
+        self.client.force_authenticate(self.moderator)
+        queue = self.client.get('/api/dialogues/review/?status=submitted')
+        self.assertEqual(queue.data['results'][0]['import_error'], self.reason)
+        detail = self.client.get(f'/api/dialogues/{dialogue.id}/')
+        self.assertEqual(detail.data['import_error'], self.reason)
+        approval = self.client.post(f'/api/dialogues/{dialogue.id}/moderate/', {
+            'status': Dialogue.STATUS_PUBLISHED,
+        }, format='json')
+        self.assertEqual(approval.status_code, 200)
+
+        self.client.force_authenticate(None)
+        public = self.client.get(f'/api/dialogues/{dialogue.id}/')
+        self.assertEqual(public.status_code, 200)
+        self.assertEqual(public.data['text'], '')
+        self.assertEqual(public.data['source_url'], dialogue.source_url)
+        self.assertEqual(public.data['import_error'], '')
+        listing = self.client.get('/api/dialogues/?section=imports')
+        self.assertEqual(listing.data['results'][0]['import_error'], '')
+
+    def test_import_error_is_hidden_from_author_detail_and_communication_queue(self):
+        dialogue = self.create_failed_import()
+        detail = self.client.get(f'/api/dialogues/{dialogue.id}/')
+        self.assertEqual(detail.data['import_error'], '')
+        queue = self.client.get('/api/communications/mine/')
+        self.assertEqual(queue.data['dialogues'][0]['import_error'], '')
+
+    def test_successful_retry_clears_previous_import_error(self):
+        dialogue = self.create_failed_import(Dialogue.STATUS_DRAFT)
+        response = self.client.patch(f'/api/dialogues/{dialogue.id}/', {
+            'text': '## Author\n\nQuestion\n\n## Claude\n\nAnswer',
+            'status': Dialogue.STATUS_SUBMITTED,
+        }, format='json')
+        self.assertEqual(response.status_code, 200)
+        dialogue.refresh_from_db()
+        self.assertEqual(dialogue.import_error, '')
+        self.assertIn('Answer', dialogue.text)
+
+
+class SectionCreationDefaultsTests(APITestCase):
+    def test_moderator_creates_section_without_address_or_sort_order(self):
+        moderator = get_user_model().objects.create_user(
+            username='section-moderator', password='password', is_staff=True,
+        )
+        Section.objects.create(name='Existing', slug='existing', order=20)
+        self.client.force_authenticate(user=moderator)
+
+        response = self.client.post(
+            '/api/sections/',
+            {'name': 'Новий розділ', 'brief': 'Короткий опис', 'slug': 'ignored', 'order': 1},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        section = Section.objects.get(pk=response.data['id'])
+        self.assertTrue(section.slug.startswith('section-'))
+        self.assertNotEqual(section.slug, 'ignored')
+        self.assertEqual(section.order, 30)
+
+
+class ArchiveWorkflowTests(APITestCase):
+    def setUp(self):
+        self.author = get_user_model().objects.create_user(username='archive-author', password='password')
+        self.moderator = get_user_model().objects.create_user(
+            username='archive-moderator', password='password', is_staff=True,
+        )
+        self.section = Section.objects.create(name='Archive section', slug='archive-section')
+        self.dialogue = Dialogue.objects.create(
+            title='Published dialogue', section=self.section, text='Text',
+            human_author=self.author, status=Dialogue.STATUS_PUBLISHED,
+        )
+
+    def test_publication_date_is_set_and_archive_can_be_restored(self):
+        self.assertIsNotNone(self.dialogue.published_at)
+        published_at = self.dialogue.published_at
+        self.client.force_authenticate(user=self.moderator)
+
+        archived = self.client.post(
+            f'/api/dialogues/{self.dialogue.id}/moderate/', {'status': 'archived'}, format='json'
+        )
+        restored = self.client.post(
+            f'/api/dialogues/{self.dialogue.id}/moderate/', {'status': 'published'}, format='json'
+        )
+
+        self.assertEqual(archived.status_code, 200)
+        self.assertEqual(restored.status_code, 200)
+        self.dialogue.refresh_from_db()
+        self.assertEqual(self.dialogue.status, Dialogue.STATUS_PUBLISHED)
+        self.assertEqual(self.dialogue.published_at, published_at)
+
+    def test_permanent_delete_is_limited_to_archived_dialogues_and_moderators(self):
+        self.client.force_authenticate(user=self.moderator)
+        published_delete = self.client.delete(f'/api/dialogues/{self.dialogue.id}/')
+        self.assertEqual(published_delete.status_code, 403)
+
+        self.dialogue.status = Dialogue.STATUS_ARCHIVED
+        self.dialogue.save(update_fields=['status', 'updated_at'])
+        self.client.force_authenticate(user=self.author)
+        author_delete = self.client.delete(f'/api/dialogues/{self.dialogue.id}/')
+        self.assertEqual(author_delete.status_code, 403)
+
+        self.client.force_authenticate(user=self.moderator)
+        moderator_delete = self.client.delete(f'/api/dialogues/{self.dialogue.id}/')
+        self.assertEqual(moderator_delete.status_code, 204)
+
+
+class AuthorCommunicationQueueTests(APITestCase):
+    def setUp(self):
+        self.author = get_user_model().objects.create_user(username='queue-author', password='password')
+        self.other = get_user_model().objects.create_user(username='queue-other', password='password')
+        self.section = Section.objects.create(name='Queue', slug='queue')
+        self.submitted = Dialogue.objects.create(
+            title='Submitted', section=self.section, source_url='https://example.com/dialogue',
+            human_author=self.author, status=Dialogue.STATUS_SUBMITTED,
+        )
+        self.published = Dialogue.objects.create(
+            title='Published', section=self.section, text='Text',
+            human_author=self.other, status=Dialogue.STATUS_PUBLISHED,
+        )
+        self.comment = Comment.objects.create(
+            dialogue=self.published, author=self.author, text='Pending comment', approved=False,
+        )
+        self.proposal = DialogueResourceProposal.objects.create(
+            dialogue=self.published,
+            resource_type=DialogueResourceProposal.RESOURCE_LITERATURE,
+            payload={'title': 'Pending publication'}, submitted_by=self.author,
+        )
+        DialogueResourceProposal.objects.create(
+            dialogue=self.published,
+            resource_type=DialogueResourceProposal.RESOURCE_LITERATURE,
+            payload={'title': 'Other publication'}, submitted_by=self.other,
+        )
+
+    def test_author_sees_and_can_cancel_only_own_pending_requests(self):
+        self.client.force_authenticate(user=self.author)
+        response = self.client.get('/api/communications/mine/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([item['id'] for item in response.data['dialogues']], [self.submitted.id])
+        self.assertEqual([item['id'] for item in response.data['comments']], [self.comment.id])
+        self.assertEqual([item['id'] for item in response.data['resource_proposals']], [self.proposal.id])
+
+        self.assertEqual(
+            self.client.post(f'/api/dialogues/{self.submitted.id}/withdraw/').status_code, 200
+        )
+        self.assertEqual(
+            self.client.post(f'/api/comments/{self.comment.id}/withdraw/').status_code, 204
+        )
+        self.assertEqual(
+            self.client.post(f'/api/resource-proposals/{self.proposal.id}/withdraw/').status_code, 204
+        )
+        self.assertFalse(Comment.objects.filter(pk=self.comment.id).exists())
+        self.assertFalse(DialogueResourceProposal.objects.filter(pk=self.proposal.id).exists())
+
+
+class StructuredLiteratureTests(APITestCase):
+    def test_approved_literature_is_stored_in_structured_fields(self):
+        author = get_user_model().objects.create_user(username='lit-author', password='password')
+        moderator = get_user_model().objects.create_user(
+            username='lit-moderator', password='password', is_staff=True,
+        )
+        section = Section.objects.create(name='Literature', slug='literature')
+        dialogue = Dialogue.objects.create(
+            title='Dialogue', section=section, text='Text', status=Dialogue.STATUS_PUBLISHED,
+        )
+        self.client.force_authenticate(user=author)
+        submitted = self.client.post(
+            f'/api/dialogues/{dialogue.id}/resource-proposals/',
+            {
+                'resource_type': 'literature', 'author': 'Карл Поппер',
+                'title': 'Еволюційна епістемологія', 'annotation': 'Короткий опис',
+                'url': 'https://example.com/book',
+            },
+            format='json',
+        )
+        self.assertEqual(submitted.status_code, 201)
+
+        self.client.force_authenticate(user=moderator)
+        approved = self.client.post(
+            f"/api/resource-proposals/{submitted.data['id']}/moderate/",
+            {'action': 'approve'}, format='json',
+        )
+
+        self.assertEqual(approved.status_code, 200)
+        item = DialogueLiterature.objects.get(dialogue=dialogue)
+        self.assertEqual(item.author, 'Карл Поппер')
+        self.assertEqual(item.title, 'Еволюційна епістемологія')
+        self.assertEqual(item.annotation, 'Короткий опис')
 
 
 class DialogueListViewTests(APITestCase):

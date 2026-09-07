@@ -24,6 +24,7 @@
             {{ dialogue.title }}
           </RouterLink>
           <p v-if="dialogue.summary" class="review-summary">{{ dialogue.summary }}</p>
+          <DialogueImportWarning :error="dialogue.import_error" />
           <div class="review-meta">
             <span>{{ dialogue.human_author_username || t('moderation.unknownAuthor') }}</span>
             <span>{{ formatDate(dialogue.created_at) }}</span>
@@ -62,6 +63,7 @@ import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 import api from '../api'
+import DialogueImportWarning from '../components/DialogueImportWarning.vue'
 
 const { t } = useI18n()
 const auth = useAuthStore()

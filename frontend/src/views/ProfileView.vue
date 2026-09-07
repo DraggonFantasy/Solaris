@@ -2,7 +2,7 @@
   <div class="profile-page">
     <h1 class="page-title">{{ auth.user?.username }}</h1>
 
-    <div v-if="saved" class="alert alert-success">{{ t('common.save') }}d</div>
+    <div v-if="saved" class="alert alert-success">{{ t('profile.saved') }}</div>
 
     <div class="profile-grid">
       <div class="card">
@@ -21,22 +21,23 @@
             <input v-model="form.email" type="email" />
           </div>
           <div class="form-group">
-            <label>Bio</label>
-            <textarea v-model="form.bio" rows="4" />
+            <label>{{ t('profile.bio') }}</label>
+            <input v-model="form.bio" type="text" maxlength="32" />
+            <small>{{ t('profile.bioHint') }}</small>
           </div>
           <button class="btn btn-primary" type="submit">{{ t('common.save') }}</button>
         </form>
       </div>
 
       <div class="card stats-card">
-        <h2 class="card-title">Usage</h2>
+        <h2 class="card-title">{{ t('profile.usage') }}</h2>
         <div class="stat-row">
-          <span>Tokens used</span>
+          <span>{{ t('profile.tokensUsed') }}</span>
           <strong>{{ auth.user?.tokens_used }}</strong>
         </div>
         <div class="stat-row">
-          <span>Budget</span>
-          <strong>{{ auth.user?.token_budget === 0 ? 'Unlimited' : auth.user?.token_budget }}</strong>
+          <span>{{ t('profile.budget') }}</span>
+          <strong>{{ auth.user?.token_budget === 0 ? t('profile.unlimited') : auth.user?.token_budget }}</strong>
         </div>
       </div>
     </div>
@@ -44,7 +45,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 import api from '../api'
@@ -58,6 +59,16 @@ const form = ref({
   last_name: auth.user?.last_name || '',
   email: auth.user?.email || '',
   bio: auth.user?.bio || '',
+})
+
+onMounted(async () => {
+  if (!auth.user) await auth.fetchMe()
+  form.value = {
+    first_name: auth.user?.first_name || '',
+    last_name: auth.user?.last_name || '',
+    email: auth.user?.email || '',
+    bio: auth.user?.bio || '',
+  }
 })
 
 async function saveProfile() {

@@ -38,14 +38,31 @@
                   <small v-if="item.version">{{ item.version }}</small>
                 </h3>
                 <span v-if="type === 'authors'" class="resource-kind">{{ authorKindLabel(item.kind) }}</span>
-                <p v-if="item.description">{{ item.description }}</p>
+                <p v-if="type === 'authors' && authorProfile(item) && authorProfile(item).length <= 20" class="profile-preview">
+                  {{ authorProfile(item) }}
+                </p>
+                <details v-else-if="type === 'authors' && authorProfile(item)" class="profile-preview">
+                  <summary>{{ truncateProfile(authorProfile(item)) }}</summary>
+                  <p>{{ authorProfile(item) }}</p>
+                </details>
+                <p v-if="item.short_info || (type === 'ai_model' && item.description)">
+                  {{ item.short_info || item.description }}
+                </p>
               </template>
 
-              <p v-else-if="type === 'literature'" class="pre-line">{{ item.text }}</p>
+              <template v-else-if="type === 'literature'">
+                <h3>{{ item.title }}</h3>
+                <span v-if="item.author" class="resource-kind">{{ item.author }}</span>
+                <p v-if="item.annotation">{{ item.annotation }}</p>
+                <a v-if="item.url" :href="item.url" target="_blank" rel="noopener noreferrer">{{ item.url }}</a>
+              </template>
 
               <figure v-else-if="type === 'illustrations'" class="illustration-item">
                 <img :src="item.image" :alt="item.caption" />
                 <figcaption v-if="item.caption">{{ item.caption }}</figcaption>
+                <a v-if="item.source_url" :href="item.source_url" target="_blank" rel="noopener noreferrer">
+                  {{ item.source_description || item.source_url }}
+                </a>
               </figure>
             </article>
           </div>
@@ -60,7 +77,9 @@
                 <p v-if="proposal.payload.caption">{{ proposal.payload.caption }}</p>
               </template>
               <template v-else-if="proposal.resource_type === 'literature'">
-                <p>{{ proposal.payload.text }}</p>
+                <strong>{{ proposal.payload.title }}</strong>
+                <small v-if="proposal.payload.author">{{ proposal.payload.author }}</small>
+                <p v-if="proposal.payload.annotation">{{ proposal.payload.annotation }}</p>
               </template>
               <template v-else>
                 <strong>{{ proposal.payload.name }}</strong>
@@ -68,7 +87,8 @@
                 <small v-if="proposal.resource_type === 'author'">
                   {{ authorKindLabel(proposal.payload.kind) }}
                 </small>
-                <p v-if="proposal.payload.description">{{ proposal.payload.description }}</p>
+                <p v-if="proposal.payload.profile">{{ proposal.payload.profile }}</p>
+                <p v-if="proposal.payload.short_info">{{ proposal.payload.short_info }}</p>
               </template>
             </article>
           </section>
@@ -99,12 +119,12 @@
                 <input v-model.trim="draft.name" type="text" required />
               </label>
               <label class="form-group">
-                <span>{{ t('dialogue.authorVersion') }}</span>
-                <input v-model.trim="draft.version" type="text" />
+                <span>{{ t('dialogue.authorProfile') }}</span>
+                <input v-model.trim="draft.profile" type="text" maxlength="32" />
               </label>
               <label class="form-group">
-                <span>{{ t('dialogue.authorDescription') }}</span>
-                <textarea v-model.trim="draft.description" rows="3" />
+                <span>{{ t('dialogue.authorShortInfo') }}</span>
+                <textarea v-model.trim="draft.short_info" rows="3" />
               </label>
             </template>
 
@@ -118,15 +138,29 @@
                 <input v-model.trim="draft.version" type="text" />
               </label>
               <label class="form-group">
-                <span>{{ t('dialogue.authorDescription') }}</span>
-                <textarea v-model.trim="draft.description" rows="3" />
+                <span>{{ t('dialogue.authorShortInfo') }}</span>
+                <textarea v-model.trim="draft.short_info" rows="3" />
               </label>
             </template>
 
-            <label v-else-if="type === 'literature'" class="form-group">
-              <span>{{ t('resources.literatureText') }}</span>
-              <textarea v-model.trim="draft.text" rows="5" required />
-            </label>
+            <template v-else-if="type === 'literature'">
+              <label class="form-group">
+                <span>{{ t('resources.literatureAuthor') }}</span>
+                <input v-model.trim="draft.author" type="text" />
+              </label>
+              <label class="form-group">
+                <span>{{ t('resources.literatureTitle') }}</span>
+                <input v-model.trim="draft.title" type="text" required />
+              </label>
+              <label class="form-group">
+                <span>{{ t('resources.literatureAnnotation') }}</span>
+                <textarea v-model.trim="draft.annotation" rows="4" />
+              </label>
+              <label class="form-group">
+                <span>{{ t('resources.literatureUrl') }}</span>
+                <input v-model.trim="draft.url" type="url" />
+              </label>
+            </template>
 
             <template v-else-if="type === 'illustrations'">
               <label class="form-group">
@@ -136,6 +170,22 @@
               <label class="form-group">
                 <span>{{ t('resources.caption') }}</span>
                 <textarea v-model.trim="draft.caption" rows="3" />
+              </label>
+              <label class="form-group">
+                <span>{{ t('resources.imageOrigin') }}</span>
+                <select v-model="draft.origin">
+                  <option value="uploaded">{{ t('resources.originUploaded') }}</option>
+                  <option value="generated">{{ t('resources.originGenerated') }}</option>
+                  <option value="found">{{ t('resources.originFound') }}</option>
+                </select>
+              </label>
+              <label class="form-group">
+                <span>{{ t('resources.sourceDescription') }}</span>
+                <input v-model.trim="draft.source_description" type="text" />
+              </label>
+              <label class="form-group">
+                <span>{{ t('resources.sourceUrl') }}</span>
+                <input v-model.trim="draft.source_url" type="url" />
               </label>
             </template>
 
@@ -237,9 +287,10 @@ const modelItems = computed(() => {
 })
 
 const literatureItems = computed(() => {
+  if (detail.value?.literature?.length) return detail.value.literature
   const text = detail.value?.recommended_literature?.trim()
   if (!text) return []
-  return text.split(/\n\s*\n/).filter(Boolean).map((item) => ({ text: item.trim() }))
+  return text.split(/\n\s*\n/).filter(Boolean).map((item) => ({ title: item.trim() }))
 })
 
 const currentItems = computed(() => {
@@ -252,7 +303,7 @@ const currentItems = computed(() => {
 
 const canSubmit = computed(() => {
   if (props.type === 'authors' || props.type === 'ai_model') return Boolean(draft.value.name.trim())
-  if (props.type === 'literature') return Boolean(draft.value.text.trim())
+  if (props.type === 'literature') return Boolean(draft.value.title.trim())
   if (props.type === 'illustrations') return Boolean(selectedFile.value)
   return false
 })
@@ -271,8 +322,16 @@ function emptyDraft() {
     name: '',
     version: '',
     description: '',
-    text: '',
+    profile: '',
+    short_info: '',
+    author: '',
+    title: '',
+    annotation: '',
+    url: '',
     caption: '',
+    origin: 'uploaded',
+    source_url: '',
+    source_description: '',
   }
 }
 
@@ -314,6 +373,14 @@ function authorKindLabel(kind) {
   return t('dialogue.authorKindPerson')
 }
 
+function authorProfile(item) {
+  return (item.profile || item.description || '').trim()
+}
+
+function truncateProfile(value) {
+  return value.length > 20 ? `${value.slice(0, 20).trim()}…` : value
+}
+
 function openForm() {
   submitError.value = ''
   submitNotice.value = ''
@@ -346,14 +413,24 @@ async function submitProposal() {
       body.append('resource_type', 'illustration')
       body.append('image', selectedFile.value)
       body.append('caption', draft.value.caption)
+      body.append('origin', draft.value.origin)
+      body.append('source_url', draft.value.source_url)
+      body.append('source_description', draft.value.source_description)
     } else if (props.type === 'literature') {
-      body = { resource_type: 'literature', text: draft.value.text }
+      body = {
+        resource_type: 'literature',
+        author: draft.value.author,
+        title: draft.value.title,
+        annotation: draft.value.annotation,
+        url: draft.value.url,
+      }
     } else {
       body = {
         resource_type: proposalType.value,
         name: draft.value.name,
         version: draft.value.version,
-        description: draft.value.description,
+        profile: draft.value.profile,
+        short_info: draft.value.short_info,
       }
       if (props.type === 'authors') body.kind = draft.value.kind
     }
@@ -496,6 +573,17 @@ function close() {
   display: block;
   font-size: 0.75rem;
   margin-bottom: 0.3rem;
+}
+
+.profile-preview {
+  color: var(--color-text-muted);
+  margin: 0.35rem 0;
+}
+
+.profile-preview summary {
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: 0.84rem;
 }
 
 .resource-empty {

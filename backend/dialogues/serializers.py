@@ -1,10 +1,11 @@
 import ipaddress
+import uuid
 from urllib.parse import urlparse
 
 from django.db import models
 from rest_framework import serializers
 from .models import (
-    Section, Interlocutor, Dialogue, DialogueIllustration, DialogueInlineImage,
+    Section, Interlocutor, Dialogue, DialogueIllustration, DialogueInlineImage, DialogueLiterature,
     DialogueResourceProposal, Comment, Like, DialogueOrder,
 )
 
@@ -70,13 +71,19 @@ def normalize_dialogue_authors(authors, human_author, source_url):
             continue
         if human_name and author.get('kind') == 'person' and author.get('name') == human_name:
             continue
-        normalized.append(author)
+        normalized.append({
+            **author,
+            'profile': str(author.get('profile', author.get('description', '')))[:32],
+            'short_info': str(author.get('short_info', '')),
+        })
 
     if human_author:
         normalized.insert(0, {
             'kind': 'person',
             'name': human_name,
             'version': '',
+            'profile': human_author.bio or '',
+            'short_info': '',
             'description': human_author.bio or '',
             'is_current_user': True,
         })
@@ -87,6 +94,8 @@ def normalize_dialogue_authors(authors, human_author, source_url):
             'kind': 'ai_model',
             'name': provider,
             'version': '',
+            'profile': '',
+            'short_info': '',
             'description': '',
             'is_source_model': True,
         })
@@ -99,9 +108,16 @@ class SectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Section
         fields = ('id', 'name', 'slug', 'brief', 'icon', 'order', 'dialogue_count')
+        read_only_fields = ('slug', 'order')
 
     def get_dialogue_count(self, obj):
         return obj.dialogues.filter(published=True).count()
+
+    def create(self, validated_data):
+        last_order = Section.objects.aggregate(maximum=models.Max('order'))['maximum'] or 0
+        validated_data['order'] = last_order + 10
+        validated_data['slug'] = f'section-{uuid.uuid4().hex[:10]}'
+        return super().create(validated_data)
 
 
 class InterlocutorSerializer(serializers.ModelSerializer):
@@ -116,7 +132,16 @@ class InterlocutorSerializer(serializers.ModelSerializer):
 class DialogueIllustrationSerializer(serializers.ModelSerializer):
     class Meta:
         model = DialogueIllustration
-        fields = ('id', 'image', 'caption', 'order')
+        fields = (
+            'id', 'image', 'caption', 'source_url', 'source_description',
+            'origin', 'order',
+        )
+
+
+class DialogueLiteratureSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DialogueLiterature
+        fields = ('id', 'author', 'title', 'annotation', 'url', 'order')
 
 
 class DialogueInlineImageSerializer(serializers.ModelSerializer):
@@ -135,14 +160,26 @@ class DialogueResourceProposalCreateSerializer(serializers.ModelSerializer):
     name = serializers.CharField(max_length=200, required=False, allow_blank=True, write_only=True)
     version = serializers.CharField(max_length=100, required=False, allow_blank=True, write_only=True)
     description = serializers.CharField(max_length=2000, required=False, allow_blank=True, write_only=True)
+    profile = serializers.CharField(max_length=32, required=False, allow_blank=True, write_only=True)
+    short_info = serializers.CharField(max_length=2000, required=False, allow_blank=True, write_only=True)
     text = serializers.CharField(max_length=10000, required=False, allow_blank=True, write_only=True)
+    author = serializers.CharField(max_length=300, required=False, allow_blank=True, write_only=True)
+    title = serializers.CharField(max_length=500, required=False, allow_blank=True, write_only=True)
+    annotation = serializers.CharField(max_length=5000, required=False, allow_blank=True, write_only=True)
+    url = serializers.URLField(max_length=2048, required=False, allow_blank=True, write_only=True)
     caption = serializers.CharField(max_length=2000, required=False, allow_blank=True, write_only=True)
+    source_url = serializers.URLField(max_length=2048, required=False, allow_blank=True, write_only=True)
+    source_description = serializers.CharField(max_length=500, required=False, allow_blank=True, write_only=True)
+    origin = serializers.ChoiceField(
+        choices=('uploaded', 'generated', 'found'), required=False, default='uploaded', write_only=True,
+    )
 
     class Meta:
         model = DialogueResourceProposal
         fields = (
-            'resource_type', 'kind', 'name', 'version', 'description',
-            'text', 'caption', 'image',
+            'resource_type', 'kind', 'name', 'version', 'description', 'profile', 'short_info',
+            'text', 'author', 'title', 'annotation', 'url',
+            'caption', 'source_url', 'source_description', 'origin', 'image',
         )
         extra_kwargs = {
             'image': {'required': False, 'allow_null': True},
@@ -153,8 +190,16 @@ class DialogueResourceProposalCreateSerializer(serializers.ModelSerializer):
         name = (attrs.get('name') or '').strip()
         version = (attrs.get('version') or '').strip()
         description = (attrs.get('description') or '').strip()
+        profile = (attrs.get('profile') or '').strip()
+        short_info = (attrs.get('short_info') or '').strip()
         text = (attrs.get('text') or '').strip()
+        literature_author = (attrs.get('author') or '').strip()
+        title = (attrs.get('title') or '').strip()
+        annotation = (attrs.get('annotation') or '').strip()
+        url = (attrs.get('url') or '').strip()
         caption = (attrs.get('caption') or '').strip()
+        source_url = (attrs.get('source_url') or '').strip()
+        source_description = (attrs.get('source_description') or '').strip()
         image = attrs.get('image')
 
         if image and image.size > 10 * 1024 * 1024:
@@ -169,7 +214,9 @@ class DialogueResourceProposalCreateSerializer(serializers.ModelSerializer):
                 'kind': attrs.get('kind') or 'person',
                 'name': name,
                 'version': version,
-                'description': description,
+                'profile': profile or description[:32],
+                'short_info': short_info,
+                'description': profile or description[:32],
             }
         elif resource_type == DialogueResourceProposal.RESOURCE_AI_MODEL:
             if not name:
@@ -178,16 +225,30 @@ class DialogueResourceProposalCreateSerializer(serializers.ModelSerializer):
                 'kind': 'ai_model',
                 'name': name,
                 'version': version,
-                'description': description,
+                'short_info': short_info or description,
+                'description': short_info or description,
             }
         elif resource_type == DialogueResourceProposal.RESOURCE_LITERATURE:
-            if not text:
-                raise serializers.ValidationError({'text': 'Literature text is required.'})
-            payload = {'text': text}
+            if not title and not text:
+                raise serializers.ValidationError({
+                    'text': 'Publication title is required.',
+                    'title': 'Publication title is required.',
+                })
+            payload = {
+                'author': literature_author,
+                'title': title or text,
+                'annotation': annotation,
+                'url': url,
+            }
         elif resource_type == DialogueResourceProposal.RESOURCE_ILLUSTRATION:
             if not image:
                 raise serializers.ValidationError({'image': 'An image is required.'})
-            payload = {'caption': caption}
+            payload = {
+                'caption': caption,
+                'source_url': source_url,
+                'source_description': source_description,
+                'origin': attrs.get('origin') or 'uploaded',
+            }
         else:
             raise serializers.ValidationError({'resource_type': 'Unsupported resource type.'})
 
@@ -195,7 +256,11 @@ class DialogueResourceProposalCreateSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        for field in ('kind', 'name', 'version', 'description', 'text', 'caption'):
+        for field in (
+            'kind', 'name', 'version', 'description', 'profile', 'short_info', 'text',
+            'author', 'title', 'annotation', 'url', 'caption', 'source_url',
+            'source_description', 'origin',
+        ):
             validated_data.pop(field, None)
         return super().create(validated_data)
 
@@ -279,22 +344,32 @@ class CommentReviewSerializer(serializers.ModelSerializer):
         return obj.parent.text
 
 
-class DialogueListSerializer(serializers.ModelSerializer):
+class ImportErrorVisibilityMixin:
+    def get_import_error(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated and request.user.is_staff:
+            return obj.import_error
+        return ''
+
+
+class DialogueListSerializer(ImportErrorVisibilityMixin, serializers.ModelSerializer):
+    import_error = serializers.SerializerMethodField()
     section_name = serializers.CharField(source='section.name', read_only=True)
     section_slug = serializers.CharField(source='section.slug', read_only=True)
     human_author_username = serializers.CharField(source='human_author.username', read_only=True)
     review_note = serializers.SerializerMethodField()
     illustrations = DialogueIllustrationSerializer(many=True, read_only=True)
+    literature = DialogueLiteratureSerializer(source='literature_items', many=True, read_only=True)
     likes_count = serializers.IntegerField(read_only=True)
     comments_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Dialogue
         fields = ('id', 'title', 'section', 'section_name', 'section_slug', 'source_url', 'summary',
-                  'recommended_literature', 'illustrations',
+                  'recommended_literature', 'literature', 'illustrations',
                   'human_author_username', 'authors', 'llm_name', 'llm_version',
-                  'status', 'review_note', 'moderation_note', 'published', 'created_at',
-                  'likes_count', 'comments_count')
+                  'status', 'review_note', 'moderation_note', 'published', 'published_at', 'created_at',
+                  'likes_count', 'comments_count', 'import_error')
 
     def get_review_note(self, obj):
         request = self.context.get('request')
@@ -305,13 +380,15 @@ class DialogueListSerializer(serializers.ModelSerializer):
         return ''
 
 
-class DialogueDetailSerializer(serializers.ModelSerializer):
+class DialogueDetailSerializer(ImportErrorVisibilityMixin, serializers.ModelSerializer):
+    import_error = serializers.SerializerMethodField()
     section_name = serializers.CharField(source='section.name', read_only=True)
     section_slug = serializers.CharField(source='section.slug', read_only=True)
     human_author_username = serializers.CharField(source='human_author.username', read_only=True)
     human_author_bio = serializers.CharField(source='human_author.bio', read_only=True)
     interlocutors = InterlocutorSerializer(many=True, read_only=True)
     illustrations = DialogueIllustrationSerializer(many=True, read_only=True)
+    literature = DialogueLiteratureSerializer(source='literature_items', many=True, read_only=True)
     comments = serializers.SerializerMethodField()
     likes_count = serializers.IntegerField(read_only=True)
     user_has_liked = serializers.SerializerMethodField()
@@ -320,11 +397,11 @@ class DialogueDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Dialogue
         fields = ('id', 'title', 'section', 'section_name', 'section_slug', 'source_url', 'text', 'summary',
-                  'food_for_thought', 'recommended_literature',
+                  'food_for_thought', 'recommended_literature', 'literature',
                   'human_author_username', 'human_author_bio',
                   'authors', 'llm_name', 'llm_version', 'interlocutors', 'illustrations',
-                  'status', 'review_note', 'moderation_note', 'published', 'created_at', 'updated_at',
-                  'likes_count', 'user_has_liked', 'comments')
+                  'status', 'review_note', 'moderation_note', 'published', 'published_at', 'created_at', 'updated_at',
+                  'likes_count', 'user_has_liked', 'comments', 'import_error')
 
     def get_comments(self, obj):
         if obj.status != Dialogue.STATUS_PUBLISHED:
@@ -360,6 +437,7 @@ class DialogueDetailSerializer(serializers.ModelSerializer):
 
 
 class DialogueWriteSerializer(serializers.ModelSerializer):
+    import_error = serializers.CharField(max_length=2000, required=False, allow_blank=True, write_only=True)
     source_url = serializers.URLField(
         max_length=2048, required=False, allow_blank=True,
         validators=[validate_external_url],
@@ -373,7 +451,7 @@ class DialogueWriteSerializer(serializers.ModelSerializer):
         model = Dialogue
         fields = ('id', 'title', 'section', 'source_url', 'text', 'summary', 'food_for_thought',
                   'recommended_literature', 'llm_name', 'llm_version',
-                  'authors', 'review_note', 'interlocutor_ids', 'status', 'published')
+                  'authors', 'review_note', 'interlocutor_ids', 'status', 'published', 'import_error')
         read_only_fields = ('id', 'published')
 
     def validate_status(self, value):
@@ -398,9 +476,15 @@ class DialogueWriteSerializer(serializers.ModelSerializer):
         authors = attrs.get('authors')
         if authors is not None and not isinstance(authors, list):
             raise serializers.ValidationError({'authors': 'Authors must be a list.'})
+        if isinstance(authors, list):
+            for author in authors:
+                if isinstance(author, dict) and len(str(author.get('profile', ''))) > 32:
+                    raise serializers.ValidationError({'authors': 'Author profile must not exceed 32 characters.'})
         next_status = attrs.get('status', getattr(self.instance, 'status', Dialogue.STATUS_DRAFT))
         source_url = attrs.get('source_url', getattr(self.instance, 'source_url', ''))
         text = attrs.get('text', getattr(self.instance, 'text', ''))
+        if (text or '').strip():
+            attrs['import_error'] = ''
         has_source = bool((source_url or '').strip() or (text or '').strip())
         if next_status in {Dialogue.STATUS_SUBMITTED, Dialogue.STATUS_PUBLISHED} and not has_source:
             raise serializers.ValidationError(

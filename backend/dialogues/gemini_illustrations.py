@@ -16,7 +16,7 @@ from typing import Any
 from django.core.files.base import ContentFile
 from PIL import Image, UnidentifiedImageError
 
-from .models import Dialogue, DialogueIllustration
+from .models import Dialogue, DialogueIllustration, DialogueLiterature
 
 
 logger = logging.getLogger(__name__)
@@ -892,6 +892,11 @@ def import_gemini_illustrations(
     if literature and not dialogue.recommended_literature.strip():
         dialogue.recommended_literature = literature
         dialogue.save(update_fields=["recommended_literature", "updated_at"])
+        DialogueLiterature.objects.get_or_create(
+            dialogue=dialogue,
+            title=literature[:500],
+            defaults={"annotation": literature if len(literature) > 500 else ""},
+        )
         literature_imported = True
 
     assets = extract_gemini_image_assets(payload)
@@ -940,6 +945,16 @@ def import_gemini_illustrations(
                 dialogue=dialogue,
                 image=ContentFile(downloaded.body, name=Path(filename).name),
                 caption=asset.caption,
+                origin={
+                    "generated": DialogueIllustration.ORIGIN_GENERATED,
+                    "retrieved": DialogueIllustration.ORIGIN_FOUND,
+                }.get(asset.kind, DialogueIllustration.ORIGIN_UPLOADED),
+                source_url=asset.url if asset.kind == "retrieved" else source_url,
+                source_description=(
+                    "Знайдено за допомогою Gemini"
+                    if asset.kind == "retrieved"
+                    else "Імпортовано з діалогу Gemini"
+                ),
                 order=next_order,
                 source_key=source_key,
             )

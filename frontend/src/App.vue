@@ -5,7 +5,7 @@
       <RouterView />
     </main>
     <footer class="footer">
-      <p>© 2026 Солярис</p>
+      <p>© 2026 Соляріс</p>
     </footer>
   </div>
 </template>

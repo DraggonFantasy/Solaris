@@ -1,22 +1,22 @@
 <template>
   <nav class="navbar">
     <div class="navbar-inner">
-      <RouterLink class="navbar-brand" to="/">
-        <span class="brand-text">СОЛЯРИС</span>
+      <RouterLink class="navbar-brand nav-button" to="/">
+        <span class="brand-text">Соляріс</span>
       </RouterLink>
 
       <div class="navbar-links">
-        <RouterLink to="/sections">{{ t('nav.sections') }}</RouterLink>
+        <RouterLink class="nav-button" to="/sections">{{ t('nav.sections') }}</RouterLink>
       </div>
 
       <div class="navbar-right">
-        <LanguageSwitcher />
-        <RouterLink v-if="auth.isAuthenticated" to="/communications">
+        <RouterLink v-if="auth.isAuthenticated" class="nav-button" to="/communications">
           {{ t('nav.communications') }}
         </RouterLink>
-        <button v-else type="button" class="navbar-static-button" disabled>
+        <button v-else type="button" class="nav-button navbar-static-button" disabled>
           {{ t('nav.communications') }}
         </button>
+        <LanguageSwitcher />
       </div>
     </div>
   </nav>
@@ -63,35 +63,37 @@ const auth = useAuthStore()
   letter-spacing: 0.1em;
 }
 
+.navbar-brand:hover .brand-text,
+.navbar-brand.router-link-active .brand-text { color: white; }
+
 .navbar-links {
   display: flex;
   gap: 1.5rem;
   flex: 1;
 }
 
-.navbar-links a,
-.navbar-right a,
-.navbar-static-button {
-  color: var(--color-text-muted);
-  background: transparent;
-  border: 0;
+.nav-button {
+  color: var(--color-primary);
+  background: var(--color-surface);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius);
   cursor: default;
   font-family: var(--font-sans);
   text-decoration: none;
   font-size: 0.9375rem;
   font-weight: 500;
-  transition: color 0.15s;
+  padding: 0.35rem 0.7rem;
+  transition: background 0.15s, color 0.15s;
 }
 
-.navbar-links a:hover,
-.navbar-links a.router-link-active,
-.navbar-right a:hover,
-.navbar-right a.router-link-active {
-  color: var(--color-primary);
+.nav-button:hover,
+.nav-button.router-link-active {
+  background: var(--color-primary);
+  color: white;
 }
 
 .navbar-static-button:disabled {
-  opacity: 1;
+  opacity: 0.55;
 }
 
 .navbar-right {

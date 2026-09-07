@@ -3,7 +3,7 @@ from django.db import models
 
 
 class User(AbstractUser):
-    bio = models.TextField(blank=True)
+    bio = models.TextField(max_length=32, blank=True)
     preferred_language = models.CharField(max_length=10, default='uk')
     token_budget = models.IntegerField(default=0, help_text='Max tokens allowed (0 = unlimited)')
     tokens_used = models.IntegerField(default=0)

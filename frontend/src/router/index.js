@@ -12,6 +12,18 @@ const routes = [
     meta: { requiresAuth: true }
   },
   { path: '/sections', component: () => import('../views/SectionsView.vue'), name: 'sections' },
+  {
+    path: '/sections/new',
+    component: () => import('../views/CreateSectionView.vue'),
+    name: 'section-create',
+    meta: { requiresAuth: true, requiresStaff: true }
+  },
+  {
+    path: '/sections/archive',
+    component: () => import('../views/ArchiveView.vue'),
+    name: 'archive',
+    meta: { requiresAuth: true, requiresStaff: true }
+  },
   { path: '/sections/:slug', component: () => import('../views/SectionDetailView.vue'), name: 'section-detail' },
   { path: '/dialogues/:id', component: () => import('../views/DialogueDetailView.vue'), name: 'dialogue-detail' },
   {

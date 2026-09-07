@@ -16,7 +16,10 @@
           <div v-else-if="type === 'literature'" class="resource-list">
             <article v-for="(item, index) in items" :key="`${item.dialogue_id}-${index}`" class="resource-item">
               <h3>{{ item.dialogue_title }}</h3>
-              <p>{{ item.text }}</p>
+              <strong>{{ item.title || item.text }}</strong>
+              <small v-if="item.author">{{ item.author }}</small>
+              <p v-if="item.annotation">{{ item.annotation }}</p>
+              <a v-if="item.url" :href="item.url" target="_blank" rel="noopener noreferrer">{{ item.url }}</a>
             </article>
           </div>
 
@@ -26,7 +29,14 @@
                 {{ item.name }}
                 <small v-if="item.version">{{ item.version }}</small>
               </h3>
-              <p v-if="item.description">{{ item.description }}</p>
+              <p v-if="(item.profile || item.description) && (item.profile || item.description).length <= 20" class="profile-preview">
+                {{ item.profile || item.description }}
+              </p>
+              <details v-else-if="item.profile || item.description" class="profile-preview">
+                <summary>{{ truncateProfile(item.profile || item.description) }}</summary>
+                <p>{{ item.profile || item.description }}</p>
+              </details>
+              <p v-if="item.short_info">{{ item.short_info }}</p>
               <ul class="author-dialogues">
                 <li v-for="dialogue in item.dialogues" :key="dialogue.id">
                   <RouterLink :to="`/dialogues/${dialogue.id}`">
@@ -43,6 +53,9 @@
               <figcaption>
                 <strong>{{ item.dialogue_title }}</strong>
                 <span v-if="item.caption">{{ item.caption }}</span>
+                <a v-if="item.source_url" :href="item.source_url" target="_blank" rel="noopener noreferrer">
+                  {{ item.source_description || item.source_url }}
+                </a>
               </figcaption>
             </figure>
           </div>
@@ -75,18 +88,24 @@ const authorItems = computed(() => {
     if (!name) return
     const version = (item.version || '').trim()
     const description = (item.description || '').trim()
+    const profile = (item.profile || description).trim()
+    const shortInfo = (item.short_info || '').trim()
     const kind = (item.kind || '').trim()
-    const key = [kind, name, version, description].join('::').toLowerCase()
+    const key = [kind, name, version].join('::').toLowerCase()
     if (!groups.has(key)) {
       groups.set(key, {
         key,
         name,
         version,
         description,
+        profile,
+        short_info: shortInfo,
         dialogues: [],
       })
     }
     const group = groups.get(key)
+    if (profile) group.profile = profile
+    if (shortInfo) group.short_info = shortInfo
     if (!group.dialogues.some((dialogue) => dialogue.id === item.dialogue_id)) {
       group.dialogues.push({
         id: item.dialogue_id,
@@ -96,6 +115,10 @@ const authorItems = computed(() => {
   })
   return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name))
 })
+
+function truncateProfile(value) {
+  return value.length > 20 ? `${value.slice(0, 20).trim()}…` : value
+}
 </script>
 
 <style scoped>
@@ -197,6 +220,9 @@ const authorItems = computed(() => {
   line-height: 1.7;
   white-space: pre-wrap;
 }
+
+.profile-preview { color: var(--color-text-muted); margin: 0.35rem 0; }
+.profile-preview summary { color: var(--color-primary); cursor: pointer; font-size: 0.86rem; }
 
 .resource-source {
   color: var(--color-accent);

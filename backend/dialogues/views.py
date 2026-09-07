@@ -8,7 +8,7 @@ from rest_framework import exceptions, generics, parsers, permissions, serialize
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from .models import (
-    Section, Interlocutor, Dialogue, DialogueIllustration, DialogueInlineImage,
+    Section, Interlocutor, Dialogue, DialogueIllustration, DialogueInlineImage, DialogueLiterature,
     DialogueResourceProposal, Comment, Like, DialogueOrder, AuditLog,
 )
 from .serializers import (
@@ -84,7 +84,9 @@ def apply_resource_proposal(proposal, dialogue):
             'kind': kind,
             'name': str(payload.get('name', '')).strip(),
             'version': str(payload.get('version', '')).strip(),
-            'description': str(payload.get('description', '')).strip(),
+            'profile': str(payload.get('profile', payload.get('description', ''))).strip()[:32],
+            'short_info': str(payload.get('short_info', '')).strip(),
+            'description': str(payload.get('description', payload.get('profile', ''))).strip(),
         }
         if not candidate['name']:
             raise serializers.ValidationError({'payload': 'A name is required.'})
@@ -94,9 +96,18 @@ def apply_resource_proposal(proposal, dialogue):
             if isinstance(item, dict)
         ] if isinstance(dialogue.authors, list) else []
         candidate_key = resource_author_key(candidate)
-        if not any(resource_author_key(item) == candidate_key for item in authors):
+        existing_author = next(
+            (item for item in authors if resource_author_key(item) == candidate_key),
+            None,
+        )
+        if existing_author is None:
             authors.append(candidate)
-            dialogue.authors = authors
+        else:
+            existing_author.update({
+                key: value for key, value in candidate.items()
+                if value or key in {'profile', 'short_info', 'description'}
+            })
+        dialogue.authors = authors
 
         update_fields = ['authors', 'updated_at']
         if kind == 'ai_model' and not dialogue.llm_name:
@@ -107,17 +118,34 @@ def apply_resource_proposal(proposal, dialogue):
         return
 
     if proposal.resource_type == DialogueResourceProposal.RESOURCE_LITERATURE:
-        text = str(payload.get('text', '')).strip()
-        if not text:
-            raise serializers.ValidationError({'payload': 'Literature text is required.'})
-        existing = dialogue.recommended_literature.strip()
-        existing_blocks = {
-            block.strip().casefold()
-            for block in re.split(r'\n\s*\n', existing)
-            if block.strip()
-        }
-        if text.casefold() not in existing_blocks:
-            dialogue.recommended_literature = f'{existing}\n\n{text}'.strip()
+        title = str(payload.get('title', payload.get('text', ''))).strip()
+        if not title:
+            raise serializers.ValidationError({'payload': 'Publication title is required.'})
+        duplicate = dialogue.literature_items.filter(
+            author__iexact=str(payload.get('author', '')).strip(),
+            title__iexact=title,
+        ).exists()
+        if not duplicate:
+            last_order = dialogue.literature_items.aggregate(maximum=models.Max('order'))['maximum']
+            DialogueLiterature.objects.create(
+                dialogue=dialogue,
+                author=str(payload.get('author', '')).strip(),
+                title=title,
+                annotation=str(payload.get('annotation', '')).strip(),
+                url=str(payload.get('url', '')).strip(),
+                order=0 if last_order is None else last_order + 1,
+            )
+            legacy_text = '\n'.join(
+                part for part in (
+                    str(payload.get('author', '')).strip(),
+                    title,
+                    str(payload.get('annotation', '')).strip(),
+                    str(payload.get('url', '')).strip(),
+                ) if part
+            )
+            dialogue.recommended_literature = '\n\n'.join(
+                part for part in (dialogue.recommended_literature.strip(), legacy_text) if part
+            )
             dialogue.save(update_fields=['recommended_literature', 'updated_at'])
         return
 
@@ -131,6 +159,9 @@ def apply_resource_proposal(proposal, dialogue):
             dialogue=dialogue,
             image=proposal.image.name,
             caption=str(payload.get('caption', '')).strip(),
+            source_url=str(payload.get('source_url', '')).strip(),
+            source_description=str(payload.get('source_description', '')).strip(),
+            origin=str(payload.get('origin', 'uploaded')).strip() or 'uploaded',
             order=0 if last_order is None else last_order + 1,
         )
         return
@@ -233,17 +264,28 @@ class SectionResourcesView(APIView):
             Dialogue.objects
             .filter(section=section, status=Dialogue.STATUS_PUBLISHED)
             .select_related('human_author')
-            .prefetch_related('illustrations')
+            .prefetch_related('illustrations', 'literature_items')
         )
         literature = []
         authors = []
         illustrations = []
 
         for dialogue in dialogues:
-            if dialogue.recommended_literature.strip():
+            for item in dialogue.literature_items.all():
+                literature.append({
+                    'id': item.id,
+                    'dialogue_id': dialogue.id,
+                    'dialogue_title': dialogue.title,
+                    'author': item.author,
+                    'title': item.title,
+                    'annotation': item.annotation,
+                    'url': item.url,
+                })
+            if not dialogue.literature_items.exists() and dialogue.recommended_literature.strip():
                 literature.append({
                     'dialogue_id': dialogue.id,
                     'dialogue_title': dialogue.title,
+                    'title': dialogue.recommended_literature,
                     'text': dialogue.recommended_literature,
                 })
 
@@ -261,6 +303,8 @@ class SectionResourcesView(APIView):
                         'kind': author.get('kind', ''),
                         'version': author.get('version', ''),
                         'description': author.get('description', ''),
+                        'profile': author.get('profile', author.get('description', '')),
+                        'short_info': author.get('short_info', ''),
                     })
             elif dialogue.human_author:
                 authors.append({
@@ -270,6 +314,8 @@ class SectionResourcesView(APIView):
                     'kind': 'person',
                     'version': '',
                     'description': '',
+                    'profile': dialogue.human_author.bio,
+                    'short_info': '',
                 })
 
             for illustration in dialogue.illustrations.all():
@@ -282,6 +328,9 @@ class SectionResourcesView(APIView):
                     'dialogue_title': dialogue.title,
                     'image': image_url,
                     'caption': illustration.caption,
+                    'source_url': illustration.source_url,
+                    'source_description': illustration.source_description,
+                    'origin': illustration.origin,
                     'order': illustration.order,
                 })
 
@@ -373,7 +422,9 @@ class DialogueListView(generics.ListCreateAPIView):
     serializer_class = DialogueListSerializer
 
     def get_queryset(self):
-        qs = Dialogue.objects.select_related('section', 'human_author').prefetch_related('illustrations')
+        qs = Dialogue.objects.select_related('section', 'human_author').prefetch_related(
+            'illustrations', 'literature_items'
+        )
         section_slug = self.request.query_params.get('section')
         if section_slug:
             return qs.filter(section__slug=section_slug, status=Dialogue.STATUS_PUBLISHED)
@@ -403,7 +454,9 @@ class DialogueListView(generics.ListCreateAPIView):
 
 class DialogueDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
-        qs = Dialogue.objects.all()
+        qs = Dialogue.objects.select_related('section', 'human_author').prefetch_related(
+            'illustrations', 'literature_items', 'comments'
+        )
         user = self.request.user
         if user.is_authenticated and user.is_staff:
             return qs
@@ -437,6 +490,8 @@ class DialogueDetailView(generics.RetrieveUpdateDestroyAPIView):
         )
 
     def perform_destroy(self, instance):
+        if not self.request.user.is_staff or instance.status != Dialogue.STATUS_ARCHIVED:
+            raise exceptions.PermissionDenied('Only a moderator can permanently delete an archived dialogue.')
         AuditLog.objects.create(
             user=self.request.user, action='delete_dialogue',
             object_type='Dialogue', object_id=str(instance.id),
@@ -452,7 +507,7 @@ class MyDialoguesView(generics.ListAPIView):
     def get_queryset(self):
         return Dialogue.objects.filter(
             human_author=self.request.user
-        ).select_related('section', 'human_author')
+        ).select_related('section', 'human_author').prefetch_related('illustrations', 'literature_items')
 
 
 class DialogueReviewListView(generics.ListAPIView):
@@ -461,7 +516,9 @@ class DialogueReviewListView(generics.ListAPIView):
 
     def get_queryset(self):
         status_filter = self.request.query_params.get('status')
-        qs = Dialogue.objects.select_related('section', 'human_author')
+        qs = Dialogue.objects.select_related('section', 'human_author').prefetch_related(
+            'illustrations', 'literature_items'
+        )
         if status_filter:
             return qs.filter(status=status_filter)
         return qs.exclude(status=Dialogue.STATUS_DRAFT)
@@ -518,6 +575,70 @@ class DialogueWithdrawView(APIView):
             details='Withdrawn from review'
         )
         return Response(DialogueDetailSerializer(dialogue, context={'request': request}).data)
+
+
+class MyCommunicationRequestsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        dialogues = Dialogue.objects.filter(
+            human_author=request.user,
+            status=Dialogue.STATUS_SUBMITTED,
+        ).select_related('section', 'human_author').prefetch_related('illustrations', 'literature_items')
+        comments = Comment.objects.filter(
+            author=request.user,
+            approved=False,
+        ).select_related('author', 'dialogue', 'parent', 'parent__author')
+        proposals = DialogueResourceProposal.objects.filter(
+            submitted_by=request.user,
+            status=DialogueResourceProposal.STATUS_PENDING,
+        ).select_related('dialogue', 'dialogue__section', 'submitted_by')
+        return Response({
+            'dialogues': DialogueListSerializer(dialogues, many=True, context={'request': request}).data,
+            'comments': CommentReviewSerializer(comments, many=True, context={'request': request}).data,
+            'resource_proposals': DialogueResourceProposalSerializer(
+                proposals, many=True, context={'request': request}
+            ).data,
+        })
+
+
+class CommentWithdrawView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        comment = generics.get_object_or_404(Comment, pk=pk, author=request.user, approved=False)
+        comment_id = comment.id
+        comment.delete()
+        AuditLog.objects.create(
+            user=request.user,
+            action='withdraw_comment',
+            object_type='Comment',
+            object_id=str(comment_id),
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class DialogueResourceProposalWithdrawView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        proposal = generics.get_object_or_404(
+            DialogueResourceProposal,
+            pk=pk,
+            submitted_by=request.user,
+            status=DialogueResourceProposal.STATUS_PENDING,
+        )
+        proposal_id = proposal.id
+        if proposal.image:
+            proposal.image.delete(save=False)
+        proposal.delete()
+        AuditLog.objects.create(
+            user=request.user,
+            action='withdraw_resource_proposal',
+            object_type='DialogueResourceProposal',
+            object_id=str(proposal_id),
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class DialogueImportShareView(APIView):

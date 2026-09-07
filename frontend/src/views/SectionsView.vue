@@ -2,46 +2,15 @@
   <div>
     <header class="sections-header">
       <h1 class="page-title">{{ t('sections.title') }}</h1>
-      <button
-        type="button"
+      <RouterLink
         class="btn btn-primary"
-        :disabled="!auth.isStaff"
-        :title="auth.isStaff ? '' : t('sections.adminOnly')"
-        @click="showSectionForm = !showSectionForm"
+        :class="{ disabled: !auth.isStaff }"
+        :aria-disabled="!auth.isStaff"
+        :to="auth.isStaff ? { name: 'section-create' } : { name: 'sections' }"
       >
         + {{ t('sections.addSection') }}
-      </button>
+      </RouterLink>
     </header>
-
-    <form v-if="showSectionForm && auth.isStaff" class="section-form card" @submit.prevent="createSection">
-      <div class="form-group">
-        <label>{{ t('sections.sectionName') }}</label>
-        <input v-model="sectionDraft.name" type="text" required />
-      </div>
-      <div class="form-group">
-        <label>{{ t('sections.sectionSlug') }}</label>
-        <input v-model="sectionDraft.slug" type="text" required />
-        <p class="field-help">{{ t('sections.sectionSlugHelp') }}</p>
-      </div>
-      <div class="form-group">
-        <label>{{ t('sections.sectionBrief') }}</label>
-        <textarea v-model="sectionDraft.brief" rows="3" />
-      </div>
-      <div class="form-group">
-        <label>{{ t('sections.sectionOrder') }}</label>
-        <input v-model.number="sectionDraft.order" type="number" min="0" />
-        <p class="field-help">{{ t('sections.sectionOrderHelp') }}</p>
-      </div>
-      <div v-if="sectionFormError" class="alert alert-error">{{ sectionFormError }}</div>
-      <div class="form-actions">
-        <button class="btn btn-primary" type="submit" :disabled="creatingSection">
-          {{ creatingSection ? t('common.loading') : t('common.save') }}
-        </button>
-        <button class="btn btn-outline" type="button" @click="showSectionForm = false">
-          {{ t('common.cancel') }}
-        </button>
-      </div>
-    </form>
 
     <div v-if="loading" class="text-muted">{{ t('common.loading') }}</div>
 
@@ -66,7 +35,16 @@
             {{ t('dialogue.authors') }}
           </button>
         </div>
+        <div class="section-emblem" aria-hidden="true">
+          <img v-if="section.icon" :src="section.icon" alt="" />
+          <span v-else>{{ section.name.slice(0, 1) }}</span>
+        </div>
       </article>
+      <RouterLink v-if="auth.isStaff" :to="{ name: 'archive' }" class="section-card archive-card card">
+        <span class="section-title-button">{{ sections.length + 1 }}. {{ t('archive.title') }}</span>
+        <p class="section-brief">{{ t('archive.description') }}</p>
+        <div class="section-emblem archive-emblem" aria-hidden="true">⌁</div>
+      </RouterLink>
     </div>
 
     <SectionResourcesModal
@@ -91,10 +69,6 @@ const { t } = useI18n()
 const auth = useAuthStore()
 const sections = ref([])
 const loading = ref(true)
-const showSectionForm = ref(false)
-const creatingSection = ref(false)
-const sectionFormError = ref('')
-const sectionDraft = ref({ name: '', slug: '', brief: '', order: 0 })
 const resourceModalOpen = ref(false)
 const resourcesLoading = ref(false)
 const activeResourceType = ref('literature')
@@ -119,33 +93,10 @@ onMounted(async () => {
     }
     const { data } = await api.get('/sections/')
     sections.value = data.results || data
-    sectionDraft.value.order = nextSectionOrder()
   } finally {
     loading.value = false
   }
 })
-
-function nextSectionOrder() {
-  const maxOrder = sections.value.reduce((max, section) => Math.max(max, section.order || 0), 0)
-  return maxOrder + 10
-}
-
-async function createSection() {
-  if (!auth.isStaff) return
-  sectionFormError.value = ''
-  creatingSection.value = true
-  try {
-    const { data } = await api.post('/sections/', sectionDraft.value)
-    sections.value.push(data)
-    sections.value.sort((a, b) => (a.order - b.order) || a.name.localeCompare(b.name))
-    sectionDraft.value = { name: '', slug: '', brief: '', order: nextSectionOrder() }
-    showSectionForm.value = false
-  } catch (err) {
-    sectionFormError.value = err.response?.data?.detail || t('sections.createError')
-  } finally {
-    creatingSection.value = false
-  }
-}
 
 async function openResources(section, type) {
   activeSection.value = section
@@ -203,7 +154,13 @@ async function openResources(section, type) {
   flex-direction: column;
   gap: 0.75rem;
   transition: box-shadow 0.2s, transform 0.2s;
+  min-height: 230px;
+  overflow: hidden;
+  padding-right: 5.5rem;
+  position: relative;
 }
+
+.archive-card { text-decoration: none; }
 
 .section-card:hover {
   box-shadow: var(--shadow-md);
@@ -252,7 +209,29 @@ async function openResources(section, type) {
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 0.25rem;
+  position: relative;
+  z-index: 1;
 }
+
+.section-emblem {
+  align-items: center;
+  bottom: 0.75rem;
+  color: var(--color-primary);
+  display: flex;
+  font-family: var(--font-serif);
+  font-size: 2.2rem;
+  font-weight: 700;
+  height: 72px;
+  justify-content: center;
+  opacity: 0.18;
+  position: absolute;
+  right: 0.75rem;
+  width: 72px;
+}
+
+.section-emblem img { height: 100%; object-fit: contain; width: 100%; }
+.archive-emblem { font-size: 3rem; }
+.disabled { opacity: 0.55; pointer-events: none; }
 
 .btn-sm {
   font-size: 0.82rem;

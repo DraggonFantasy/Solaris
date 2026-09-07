@@ -8,8 +8,10 @@
       <div class="dialogue-meta">
         <span v-if="dialogue.human_author_username">{{ t('dialogues.by') }}: <strong>{{ dialogue.human_author_username }}</strong></span>
         <span v-if="dialogue.llm_name">{{ t('dialogues.model') }}: <strong>{{ dialogue.llm_name }} {{ dialogue.llm_version }}</strong></span>
-        <span>{{ formatDate(dialogue.created_at) }}</span>
+        <span>{{ t('dialogue.publicationDate') }}: <strong>{{ formatDate(dialogue.published_at || dialogue.created_at) }}</strong></span>
+        <span class="dialogue-status" :class="dialogue.status">{{ t(`dialogue.status.${dialogue.status}`) }}</span>
       </div>
+      <p v-if="dialogue.human_author_bio" class="author-profile">{{ dialogue.human_author_bio }}</p>
       <div v-if="dialogue.authors?.length" class="dialogue-authors">
         <span v-for="author in dialogue.authors" :key="`${author.kind}-${author.name}`" class="author-pill">
           {{ author.name }}<small v-if="author.version"> {{ author.version }}</small>
@@ -20,13 +22,13 @@
           {{ t('dialogue.edit') }}
         </RouterLink>
         <button
-          v-if="canDelete"
-          class="btn btn-danger"
+          v-if="canArchive"
+          class="btn btn-outline"
           type="button"
-          :disabled="deleting"
-          @click="deleteDialogue"
+          :disabled="archiving"
+          @click="archiveDialogue"
         >
-          {{ deleting ? t('common.loading') : t('dialogue.delete') }}
+          {{ archiving ? t('common.loading') : t('moderation.archive') }}
         </button>
       </div>
       <div v-else-if="canWithdraw" class="dialogue-actions">
@@ -38,6 +40,16 @@
         {{ dialogueActionError }}
       </div>
     </header>
+
+    <nav v-if="isPublished" class="dialogue-resource-actions">
+      <button class="btn btn-outline btn-sm" @click="openResource('authors')">{{ t('dialogues.by') }}</button>
+      <button class="btn btn-outline btn-sm" @click="openResource('literature')">{{ t('dialogues.literature') }}</button>
+      <button class="btn btn-outline btn-sm" @click="openResource('comments')">{{ t('dialogues.comments') }}</button>
+      <button class="btn btn-outline btn-sm" @click="openResource('illustrations')">{{ t('dialogues.illustrations') }}</button>
+      <button class="btn btn-outline btn-sm" @click="openResource('ai_model')">{{ t('dialogues.aiModel') }}</button>
+    </nav>
+
+    <DialogueImportWarning :error="dialogue.import_error" />
 
     <div v-if="dialogue.moderation_note" class="moderation-message">
       <h2>{{ t('dialogue.moderationMessage') }}</h2>
@@ -73,43 +85,48 @@
       <p>{{ dialogue.summary }}</p>
     </div>
 
-    <div v-if="dialogue.illustrations?.length" class="dialogue-block">
+    <div v-if="firstIllustration" class="dialogue-block">
       <h2>{{ t('dialogues.illustrations') }}</h2>
-      <div class="illustrations-menu">
-        <nav class="illustration-tabs" :aria-label="t('dialogues.illustrations')">
-          <button
-            v-for="(ill, index) in dialogue.illustrations"
-            :key="ill.id"
-            type="button"
-            :class="{ active: selectedIllustration?.id === ill.id }"
-            @click="activeIllustrationId = ill.id"
-          >
-            {{ illustrationMenuLabel(ill, index) }}
+      <div class="illustrations-menu single-illustration">
+        <figure class="illustration-detail">
+          <button type="button" class="illustration-preview" @click="openIllustrationModal(firstIllustration)">
+            <img :src="firstIllustration.image" :alt="firstIllustration.caption" />
           </button>
-        </nav>
-        <figure v-if="selectedIllustration" class="illustration-detail">
-          <button type="button" class="illustration-preview" @click="openIllustrationModal(selectedIllustration)">
-            <img :src="selectedIllustration.image" :alt="selectedIllustration.caption" />
-          </button>
-          <figcaption v-if="selectedIllustration.caption">{{ selectedIllustration.caption }}</figcaption>
+          <figcaption v-if="firstIllustration.caption">
+            {{ illustrationCaptionExpanded ? firstIllustration.caption : shortIllustrationCaption }}
+            <button v-if="illustrationCaptionTruncated" type="button" class="text-toggle" @click="illustrationCaptionExpanded = !illustrationCaptionExpanded">
+              {{ illustrationCaptionExpanded ? t('dialogue.showLess') : t('dialogue.showMore') }}
+            </button>
+          </figcaption>
         </figure>
       </div>
     </div>
 
-    <div v-if="dialogue.text" class="dialogue-text card">
+    <section v-if="dialogue.text || dialogue.source_url" class="dialogue-access card">
+      <h2>{{ t('dialogue.accessTitle') }}</h2>
+      <div class="dialogue-access-options">
+        <div v-if="dialogue.text" class="dialogue-access-option">
+          <p>{{ t('dialogue.internalStored') }}</p>
+          <a class="btn btn-primary" href="#internal-dialogue">
+            {{ t('dialogue.openInternal') }}
+          </a>
+        </div>
+        <div v-if="dialogue.source_url" class="dialogue-access-option">
+          <p>{{ t('dialogue.externalStored') }}</p>
+          <a
+            class="btn btn-outline"
+            :href="dialogue.source_url"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {{ t('dialogue.openExternal') }} ↗
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <div v-if="dialogue.text" id="internal-dialogue" class="dialogue-text card">
       <MarkdownRenderer :content="dialogue.text" />
-    </div>
-    <div v-else class="dialogue-text external-dialogue-card card">
-      <p>{{ t('dialogue.externalOnly') }}</p>
-      <a
-        v-if="dialogue.source_url"
-        class="btn btn-outline"
-        :href="dialogue.source_url"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        {{ t('dialogue.openExternal') }} ↗
-      </a>
     </div>
 
     <div v-if="dialogue.food_for_thought" class="dialogue-block">
@@ -117,9 +134,15 @@
       <p>{{ dialogue.food_for_thought }}</p>
     </div>
 
-    <div v-if="dialogue.recommended_literature" class="dialogue-block">
+    <div v-if="dialogue.literature?.length || dialogue.recommended_literature" class="dialogue-block">
       <h2>{{ t('dialogues.literature') }}</h2>
-      <p>{{ dialogue.recommended_literature }}</p>
+      <article v-for="item in dialogue.literature" :key="item.id" class="literature-item">
+        <strong>{{ item.title }}</strong>
+        <span v-if="item.author">{{ item.author }}</span>
+        <p v-if="item.annotation">{{ item.annotation }}</p>
+        <a v-if="item.url" :href="item.url" target="_blank" rel="noopener noreferrer">{{ item.url }}</a>
+      </article>
+      <p v-if="!dialogue.literature?.length">{{ dialogue.recommended_literature }}</p>
     </div>
 
     <!-- Like button -->
@@ -133,6 +156,14 @@
       v-if="isPublished"
       :dialogue="dialogue"
       anchor-id="comments"
+      @updated="setDialogue"
+    />
+
+    <DialogueResourcesModal
+      :open="resourceModal.open"
+      :type="resourceModal.type"
+      :dialogue="dialogue"
+      @close="resourceModal.open = false"
       @updated="setDialogue"
     />
 
@@ -162,6 +193,8 @@ import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 import api from '../api'
 import DialogueComments from '../components/DialogueComments.vue'
+import DialogueImportWarning from '../components/DialogueImportWarning.vue'
+import DialogueResourcesModal from '../components/DialogueResourcesModal.vue'
 import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 
 const { t } = useI18n()
@@ -173,12 +206,13 @@ const loading = ref(true)
 const detailErrorStatus = ref(null)
 const dialogueActionError = ref('')
 const withdrawing = ref(false)
-const deleting = ref(false)
+const archiving = ref(false)
 const savingStatus = ref(false)
 const statusDraft = ref('')
 const moderationNoteDraft = ref('')
-const activeIllustrationId = ref(null)
 const modalIllustration = ref(null)
+const illustrationCaptionExpanded = ref(false)
+const resourceModal = ref({ open: false, type: 'authors' })
 
 const moderationStatuses = ['submitted', 'changes_requested', 'rejected', 'published', 'archived']
 
@@ -187,7 +221,7 @@ const canEdit = computed(() => {
   if (!dialogue.value || !auth.isAuthenticated) return false
   return auth.isStaff || ['draft', 'changes_requested', 'rejected'].includes(dialogue.value.status)
 })
-const canDelete = computed(() => canEdit.value)
+const canArchive = computed(() => auth.isStaff && dialogue.value?.status !== 'archived')
 const canWithdraw = computed(() => {
   return auth.isAuthenticated && dialogue.value?.status === 'submitted'
 })
@@ -196,10 +230,13 @@ const backTarget = computed(() => {
   if (dialogue.value.status !== 'published') return { name: 'my-dialogues' }
   return `/sections/${dialogue.value.section_slug}`
 })
-const selectedIllustration = computed(() => {
-  const illustrations = dialogue.value?.illustrations || []
-  if (!illustrations.length) return null
-  return illustrations.find((illustration) => illustration.id === activeIllustrationId.value) || illustrations[0]
+const firstIllustration = computed(() => dialogue.value?.illustrations?.[0] || null)
+const shortIllustrationCaption = computed(() => {
+  const words = (firstIllustration.value?.caption || '').trim().split(/\s+/).filter(Boolean)
+  return words.length > 12 ? `${words.slice(0, 12).join(' ')}…` : words.join(' ')
+})
+const illustrationCaptionTruncated = computed(() => {
+  return (firstIllustration.value?.caption || '').trim().split(/\s+/).filter(Boolean).length > 12
 })
 
 onMounted(async () => {
@@ -231,7 +268,7 @@ function setDialogue(data) {
   dialogue.value = data
   statusDraft.value = data.status || 'submitted'
   moderationNoteDraft.value = data.moderation_note || ''
-  activeIllustrationId.value = data.illustrations?.[0]?.id || null
+  illustrationCaptionExpanded.value = false
   modalIllustration.value = null
 }
 
@@ -247,11 +284,8 @@ function closeIllustrationModal() {
   modalIllustration.value = null
 }
 
-function illustrationMenuLabel(illustration, index) {
-  const fallback = `${t('dialogues.illustrations')} ${index + 1}`
-  const caption = (illustration.caption || '').trim()
-  if (!caption) return fallback
-  return caption.length > 64 ? `${caption.slice(0, 61).trim()}...` : caption
+function openResource(type) {
+  resourceModal.value = { open: true, type }
 }
 
 async function toggleLike() {
@@ -275,17 +309,17 @@ async function withdrawFromReview() {
   }
 }
 
-async function deleteDialogue() {
-  if (!canDelete.value || !window.confirm(t('dialogue.deleteConfirm'))) return
+async function archiveDialogue() {
+  if (!canArchive.value) return
   dialogueActionError.value = ''
-  deleting.value = true
+  archiving.value = true
   try {
-    await api.delete(`/dialogues/${route.params.id}/`)
-    router.push(auth.isStaff ? { name: 'communications' } : { name: 'my-dialogues' })
+    await api.post(`/dialogues/${route.params.id}/moderate/`, { status: 'archived' })
+    router.push({ name: 'archive' })
   } catch {
     dialogueActionError.value = t('dialogue.deleteError')
   } finally {
-    deleting.value = false
+    archiving.value = false
   }
 }
 
@@ -363,6 +397,31 @@ async function updateDialogueStatus() {
   gap: 1.5rem;
   font-size: 0.875rem;
   color: var(--color-text-muted);
+}
+
+.dialogue-status {
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.1rem 0.5rem;
+}
+.dialogue-status.published { background: #dcfce7; color: #166534; }
+.dialogue-status.submitted { background: #dbeafe; color: #1d4ed8; }
+.dialogue-status.changes_requested { background: #fef9c3; color: #854d0e; }
+.dialogue-status.rejected { background: #fee2e2; color: #991b1b; }
+.dialogue-status.archived { background: #ede9fe; color: #5b21b6; }
+
+.author-profile {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  margin-top: 0.35rem;
+}
+
+.dialogue-resource-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: -0.5rem 0 1.5rem;
 }
 
 .dialogue-authors {
@@ -463,16 +522,36 @@ async function updateDialogueStatus() {
   margin: 1.5rem 0;
 }
 
-.external-dialogue-card {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  justify-content: space-between;
+.dialogue-access {
+  margin: 1.5rem 0;
 }
 
-.external-dialogue-card p {
-  color: var(--color-text);
+.dialogue-access h2 {
+  color: var(--color-primary);
+  font-family: var(--font-serif);
+  font-size: 1.125rem;
+  margin-bottom: 1rem;
+}
+
+.dialogue-access-options {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.dialogue-access-option {
+  align-items: flex-start;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  justify-content: space-between;
+  padding: 1rem;
+}
+
+.dialogue-access-option p {
+  color: var(--color-text-muted);
   line-height: 1.6;
   margin: 0;
 }
@@ -488,6 +567,29 @@ async function updateDialogueStatus() {
   grid-template-columns: 240px minmax(0, 420px);
   align-items: start;
 }
+
+.illustrations-menu.single-illustration { display: block; }
+
+.text-toggle {
+  background: none;
+  border: 0;
+  color: var(--color-primary);
+  cursor: pointer;
+  font: inherit;
+  margin-left: 0.35rem;
+  text-decoration: underline;
+}
+
+.literature-item {
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.65rem 0;
+}
+
+.literature-item span,
+.literature-item p { color: var(--color-text-muted); }
 
 .illustration-tabs {
   border-right: 1px solid var(--color-border);

@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 
 
 class Section(models.Model):
@@ -52,6 +53,7 @@ class Dialogue(models.Model):
     section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name='dialogues')
     source_url = models.URLField(max_length=2048, blank=True)
     text = models.TextField(blank=True)
+    import_error = models.TextField(max_length=2000, blank=True)
     summary = models.TextField(blank=True)
     food_for_thought = models.TextField(blank=True)
     recommended_literature = models.TextField(blank=True)
@@ -68,6 +70,7 @@ class Dialogue(models.Model):
     review_note = models.TextField(blank=True)
     moderation_note = models.TextField(blank=True)
     published = models.BooleanField(default=False)
+    published_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -79,6 +82,14 @@ class Dialogue(models.Model):
 
     def save(self, *args, **kwargs):
         self.published = self.status == self.STATUS_PUBLISHED
+        if self.published and self.published_at is None:
+            self.published_at = timezone.now()
+        if kwargs.get('update_fields') is not None:
+            update_fields = set(kwargs['update_fields'])
+            update_fields.add('published')
+            if self.published_at is not None:
+                update_fields.add('published_at')
+            kwargs['update_fields'] = list(update_fields)
         super().save(*args, **kwargs)
 
     @property
@@ -91,9 +102,21 @@ class Dialogue(models.Model):
 
 
 class DialogueIllustration(models.Model):
+    ORIGIN_UPLOADED = 'uploaded'
+    ORIGIN_GENERATED = 'generated'
+    ORIGIN_FOUND = 'found'
+    ORIGIN_CHOICES = [
+        (ORIGIN_UPLOADED, 'Uploaded'),
+        (ORIGIN_GENERATED, 'Generated'),
+        (ORIGIN_FOUND, 'Found online'),
+    ]
+
     dialogue = models.ForeignKey(Dialogue, on_delete=models.CASCADE, related_name='illustrations')
     image = models.ImageField(upload_to='illustrations/')
     caption = models.TextField(blank=True)
+    source_url = models.URLField(max_length=2048, blank=True)
+    source_description = models.CharField(max_length=500, blank=True)
+    origin = models.CharField(max_length=16, choices=ORIGIN_CHOICES, default=ORIGIN_UPLOADED)
     order = models.PositiveIntegerField(default=0)
     source_key = models.CharField(max_length=255, blank=True, db_index=True)
 
@@ -109,6 +132,22 @@ class DialogueIllustration(models.Model):
 
     def __str__(self):
         return f'Illustration for "{self.dialogue.title}"'
+
+
+class DialogueLiterature(models.Model):
+    dialogue = models.ForeignKey(Dialogue, on_delete=models.CASCADE, related_name='literature_items')
+    author = models.CharField(max_length=300, blank=True)
+    title = models.CharField(max_length=500)
+    annotation = models.TextField(blank=True)
+    url = models.URLField(max_length=2048, blank=True)
+    order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return self.title
 
 
 class DialogueResourceProposal(models.Model):
