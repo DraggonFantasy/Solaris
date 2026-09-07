@@ -36,7 +36,7 @@
           </button>
         </div>
         <div class="section-emblem" aria-hidden="true">
-          <img v-if="section.icon" :src="section.icon" alt="" />
+          <img style="border-radius: 15px;" v-if="section.icon" :src="section.icon" alt="" />
           <span v-else>{{ section.name.slice(0, 1) }}</span>
         </div>
       </article>
@@ -156,7 +156,7 @@ async function openResources(section, type) {
   transition: box-shadow 0.2s, transform 0.2s;
   min-height: 230px;
   overflow: hidden;
-  padding-right: 5.5rem;
+  padding-right: 7.25rem;
   position: relative;
 }
 
@@ -221,12 +221,14 @@ async function openResources(section, type) {
   font-family: var(--font-serif);
   font-size: 2.2rem;
   font-weight: 700;
-  height: 72px;
+  background: #000;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  height: 96px;
   justify-content: center;
-  opacity: 0.18;
   position: absolute;
   right: 0.75rem;
-  width: 72px;
+  width: 96px;
+  border-radius: 15px;
 }
 
 .section-emblem img { height: 100%; object-fit: contain; width: 100%; }
