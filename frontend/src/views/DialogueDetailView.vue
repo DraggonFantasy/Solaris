@@ -1,6 +1,6 @@
 <template>
   <div v-if="dialogue" class="dialogue-page">
-    <RouterLink :to="backTarget" class="back-link">← {{ t('common.back') }}</RouterLink>
+    <BackLink :fallback="backTarget" />
 
     <header class="dialogue-header">
       <div class="dialogue-section-tag">{{ dialogue.section_name }}</div>
@@ -105,11 +105,11 @@
     <section v-if="dialogue.text || dialogue.source_url" class="dialogue-access card">
       <h2>{{ t('dialogue.accessTitle') }}</h2>
       <div class="dialogue-access-options">
-        <div v-if="dialogue.text" class="dialogue-access-option">
+        <div v-if="dialogue.text?.trim()" class="dialogue-access-option">
           <p>{{ t('dialogue.internalStored') }}</p>
-          <a class="btn btn-primary" href="#internal-dialogue">
+          <RouterLink class="btn btn-primary" :to="{ name: 'dialogue-reader', params: { id: dialogue.id } }">
             {{ t('dialogue.openInternal') }}
-          </a>
+          </RouterLink>
         </div>
         <div v-if="dialogue.source_url" class="dialogue-access-option">
           <p>{{ t('dialogue.externalStored') }}</p>
@@ -124,10 +124,6 @@
         </div>
       </div>
     </section>
-
-    <div v-if="dialogue.text" id="internal-dialogue" class="dialogue-text card">
-      <MarkdownRenderer :content="dialogue.text" />
-    </div>
 
     <div v-if="dialogue.food_for_thought" class="dialogue-block">
       <h2>{{ t('dialogues.foodForThought') }}</h2>
@@ -195,7 +191,7 @@ import api from '../api'
 import DialogueComments from '../components/DialogueComments.vue'
 import DialogueImportWarning from '../components/DialogueImportWarning.vue'
 import DialogueResourcesModal from '../components/DialogueResourcesModal.vue'
-import MarkdownRenderer from '../components/MarkdownRenderer.vue'
+import BackLink from '../components/BackLink.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -227,6 +223,8 @@ const canWithdraw = computed(() => {
 })
 const backTarget = computed(() => {
   if (!dialogue.value) return { name: 'sections' }
+  if (dialogue.value.status === 'archived' && auth.isStaff) return { name: 'archive' }
+  if (dialogue.value.status !== 'published' && auth.isStaff) return { name: 'communications' }
   if (dialogue.value.status !== 'published') return { name: 'my-dialogues' }
   return `/sections/${dialogue.value.section_slug}`
 })
@@ -346,14 +344,6 @@ async function updateDialogueStatus() {
 </script>
 
 <style scoped>
-.back-link {
-  color: var(--color-text-muted);
-  text-decoration: none;
-  font-size: 0.875rem;
-  display: inline-block;
-  margin-bottom: 1rem;
-}
-
 .detail-error {
   margin: 3rem auto;
   max-width: 560px;
@@ -516,10 +506,6 @@ async function updateDialogueStatus() {
   font-size: 1.125rem;
   margin-bottom: 0.75rem;
   color: var(--color-primary);
-}
-
-.dialogue-text {
-  margin: 1.5rem 0;
 }
 
 .dialogue-access {

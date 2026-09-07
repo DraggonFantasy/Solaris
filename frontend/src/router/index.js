@@ -26,6 +26,7 @@ const routes = [
   },
   { path: '/sections/:slug', component: () => import('../views/SectionDetailView.vue'), name: 'section-detail' },
   { path: '/dialogues/:id', component: () => import('../views/DialogueDetailView.vue'), name: 'dialogue-detail' },
+  { path: '/dialogues/:id/read', component: () => import('../views/DialogueReaderView.vue'), name: 'dialogue-reader' },
   {
     path: '/profile',
     component: () => import('../views/ProfileView.vue'),
@@ -73,7 +74,8 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior: (to) => {
+  scrollBehavior: (to, from, savedPosition) => {
+    if (savedPosition) return savedPosition
     if (to.hash) return { el: to.hash, top: 16 }
     return { top: 0 }
   },
