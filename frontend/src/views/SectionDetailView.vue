@@ -39,30 +39,6 @@
           </RouterLink>
           <p v-if="d.summary" class="dialogue-row-summary">{{ d.summary }}</p>
         </div>
-        <div class="dialogue-row-actions">
-          <RouterLink
-            v-if="auth.isStaff"
-            class="btn btn-primary btn-sm"
-            :to="{ name: 'edit-dialogue', params: { id: d.id } }"
-          >
-            {{ t('dialogue.edit') }}
-          </RouterLink>
-          <button type="button" class="btn btn-outline btn-sm" @click="openDialogueInfo(d, 'authors')">
-            {{ t('dialogues.by') }}
-          </button>
-          <button type="button" class="btn btn-outline btn-sm" @click="openDialogueInfo(d, 'literature')">
-            {{ t('dialogues.literatureShort') }}
-          </button>
-          <button type="button" class="btn btn-outline btn-sm" @click="openDialogueInfo(d, 'comments')">
-            {{ t('dialogues.comments') }}
-          </button>
-          <button type="button" class="btn btn-outline btn-sm" @click="openDialogueInfo(d, 'illustrations')">
-            {{ t('dialogues.illustrations') }}
-          </button>
-          <button type="button" class="btn btn-outline btn-sm" @click="openDialogueInfo(d, 'ai_model')">
-            {{ t('dialogues.aiModel') }}
-          </button>
-        </div>
       </article>
     </div>
 
@@ -75,13 +51,6 @@
       @close="resourceModalOpen = false"
     />
 
-    <DialogueResourcesModal
-      :open="dialogueModal.open"
-      :type="dialogueModal.type"
-      :dialogue="dialogueModal.dialogue"
-      @close="closeDialogueInfo"
-      @updated="updateDialogueInList"
-    />
   </div>
 </template>
 
@@ -90,13 +59,10 @@ import { computed, ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import api from '../api'
-import { useAuthStore } from '../stores/auth'
-import DialogueResourcesModal from '../components/DialogueResourcesModal.vue'
 import SectionResourcesModal from '../components/SectionResourcesModal.vue'
 
 const { t } = useI18n()
 const route = useRoute()
-const auth = useAuthStore()
 const section = ref(null)
 const dialogues = ref([])
 const sections = ref([])
@@ -105,7 +71,6 @@ const resourceModalOpen = ref(false)
 const resourcesLoading = ref(false)
 const activeResourceType = ref('literature')
 const sectionResources = ref({})
-const dialogueModal = ref({ open: false, type: 'authors', dialogue: null })
 
 const sectionNumber = computed(() => {
   if (!section.value) return 1
@@ -125,9 +90,6 @@ const resourceTitle = computed(() => {
 
 onMounted(async () => {
   try {
-    if (auth.isAuthenticated && !auth.user) {
-      await auth.fetchMe()
-    }
     const [sectionRes, dialogueRes, sectionsRes] = await Promise.all([
       api.get(`/sections/${route.params.slug}/`),
       api.get(`/dialogues/?section=${route.params.slug}`),
@@ -154,23 +116,6 @@ async function openResources(type) {
   }
 }
 
-function openDialogueInfo(dialogue, type) {
-  dialogueModal.value = { open: true, type, dialogue }
-}
-
-function closeDialogueInfo() {
-  dialogueModal.value = { open: false, type: 'authors', dialogue: null }
-}
-
-function updateDialogueInList(updatedDialogue) {
-  const index = dialogues.value.findIndex((dialogue) => dialogue.id === updatedDialogue.id)
-  if (index >= 0) {
-    dialogues.value[index] = { ...dialogues.value[index], ...updatedDialogue }
-  }
-  if (dialogueModal.value.dialogue?.id === updatedDialogue.id) {
-    dialogueModal.value.dialogue = { ...dialogueModal.value.dialogue, ...updatedDialogue }
-  }
-}
 </script>
 
 <style scoped>
@@ -262,27 +207,12 @@ function updateDialogueInList(updatedDialogue) {
   overflow: hidden;
 }
 
-.dialogue-row-actions {
-  display: flex;
-  flex-shrink: 0;
-  flex-wrap: nowrap;
-  gap: 0.35rem;
-  justify-content: flex-end;
-}
-
-.btn-sm {
-  font-size: 0.76rem;
-  padding: 0.32rem 0.52rem;
-  white-space: nowrap;
-}
-
 @media (max-width: 640px) {
   .section-header {
     flex-direction: column;
   }
 
-  .section-actions,
-  .dialogue-row-actions {
+  .section-actions {
     flex-wrap: wrap;
     justify-content: flex-start;
   }
